@@ -20,13 +20,14 @@ SET ( liboslexec_srcs
           ../liboslcomp/ast.cpp ../liboslcomp/codegen.cpp
           ../liboslcomp/oslcomp.cpp ../liboslcomp/symtab.cpp
           ../liboslcomp/typecheck.cpp
+          llvm_instance.cpp
     )
 FILE ( GLOB compiler_headers "*.h" )
 
 FLEX_BISON ( osolex.l osogram.y oso liboslexec_srcs compiler_headers )
 
 ADD_LIBRARY ( oslexec SHARED ${liboslexec_srcs} )
-TARGET_LINK_LIBRARIES ( oslexec oslcomp ${OPENIMAGEIO_LIBRARY} ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+TARGET_LINK_LIBRARIES ( oslexec oslcomp ${OPENIMAGEIO_LIBRARY} ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} ${LLVM_LIBRARY})
 LINK_ILMBASE ( oslexec )
 
 INSTALL ( TARGETS oslexec LIBRARY DESTINATION lib )
@@ -35,10 +36,10 @@ INSTALL ( TARGETS oslexec LIBRARY DESTINATION lib )
 
 # Unit tests
 add_executable (closure_test closure_test.cpp)
-add_executable (accum_test accum_test.cpp)
+#add_executable (accum_test accum_test.cpp)
 target_link_libraries ( closure_test oslexec ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
-target_link_libraries ( accum_test oslexec ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+#target_link_libraries ( accum_test oslexec ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
 link_ilmbase (closure_test)
-link_ilmbase (accum_test)
+#link_ilmbase (accum_test)
 add_test (unit_closure ${CMAKE_BINARY_DIR}/liboslexec/closure_test)
-add_test (unit_accum ${CMAKE_BINARY_DIR}/liboslexec/accum_test)
+#add_test (unit_accum ${CMAKE_BINARY_DIR}/liboslexec/accum_test)

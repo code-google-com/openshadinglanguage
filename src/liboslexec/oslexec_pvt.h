@@ -44,9 +44,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "oslclosure.h"
 #include "osl_pvt.h"
 #include "constantpool.h"
+
+
 using namespace OSL;
 using namespace OSL::pvt;
 
+namespace llvm {
+  class ExecutionEngine;
+  class Function;
+  class FunctionPassManager;
+  class LLVMContext;
+  class Linker;
+  class Module;
+  class PassManager;
+}
 
 #ifdef OSL_NAMESPACE
 namespace OSL_NAMESPACE {
@@ -359,6 +370,12 @@ public:
     ///
     void make_symbol_room (size_t moresyms=1);
 
+
+  // LLVM stuff
+  llvm::Function* LLVMVersion() { return llvm_version; }
+  llvm::Function* buildLLVMVersion(llvm::LLVMContext& llvm_context,
+                                   llvm::Module* llvm_module);
+
 private:
     bool heap_size_calculated () const { return m_heap_size_calculated; }
     void calc_heap_size ();
@@ -383,6 +400,7 @@ private:
     int m_firstparam, m_lastparam;      ///< Subset of symbols that are params
     int m_maincodebegin, m_maincodeend; ///< Main shader code range
     int m_Psym, m_Nsym;                 ///< Quick lookups of common syms
+    llvm::Function* llvm_version;
 
     friend class ShadingExecution;
     friend class ShadingSystemImpl;
@@ -427,8 +445,6 @@ private:
     mutex m_mutex;                   ///< Thread-safe optimization
     friend class ShadingSystemImpl;
 };
-
-
 
 class ShadingSystemImpl : public ShadingSystem
 {
@@ -539,6 +555,13 @@ public:
     float *alloc_float_constants (size_t n) { return m_float_pool.alloc (n); }
     ustring *alloc_string_constants (size_t n) { return m_string_pool.alloc (n); }
 
+
+  void SetupLLVM();
+  llvm::LLVMContext& getLLVMContext() { return *m_llvm_context; }
+  llvm::ExecutionEngine* ExecutionEngine() { return m_llvm_exec; }
+  llvm::FunctionPassManager* FunctionOptimizer() { return m_opt_function; }
+  llvm::PassManager* IPOOptimizer() { return m_opt_ipo; }
+
 private:
     void printstats () const;
     void init_global_heap_offsets ();
@@ -639,6 +662,17 @@ private:
     atomic_ll m_make_varying;             ///< Adjust_varying made it varying
     atomic_ll m_make_uniform;             ///< Adjust_varying made it uniform
 #endif
+
+    // LLVM stuff
+  llvm::LLVMContext* m_llvm_context;
+  llvm::Linker* m_llvm_linker;
+  llvm::Module* m_llvm_module;
+  llvm::ExecutionEngine* m_llvm_exec;
+  llvm::FunctionPassManager* m_opt_function;
+  llvm::PassManager* m_opt_ipo;
+
+  llvm::Module* LoadAllBitcode();
+  void SetupLLVMOptimizer();
 
     friend class ShadingContext;
     friend class ShaderInstance;
@@ -1199,6 +1233,31 @@ private:
 };
 
 
+struct SingleShaderGlobal {
+  Vec3 P;                ///< Position
+  Vec3 dPdx, dPdy;       ///< Partials
+  Vec3 I;                ///< Incident ray
+  Vec3 dIdx, dIdy;       ///< Partial derivatives for I
+  Vec3 N;                ///< Shading normal
+  Vec3 Ng;               ///< True geometric normal
+  float u, v;            ///< Surface parameters
+  float dudx, dudy;      ///< u differentials
+  float dvdx, dvdy;      ///< v differentials
+  Vec3 dPdu, dPdv;       ///< Partial derivatives
+  float time;            ///< Time for each sample
+  float dtime;           ///< Time interval for each sample
+  Vec3 dPdtime;          ///< Velocity
+  Vec3 Ps;               ///< Point being lit
+  Vec3 dPsdx, dPsdy;     ///< Derivs of Ps
+  void* renderstate;    ///< Renderer context for each sample
+  TransformationPtr object2common; /// Object->common xform
+  TransformationPtr shader2common; /// Shader->common xform
+  ClosureColor* Ci;     ///< Output colors
+  float surfacearea;     ///< Total area of the object (not exposed)
+  bool iscameraray;                  ///< True if computing for camera ray
+  bool isshadowray;                  ///< True if computing for shadow opacity
+  bool flipHandedness;               ///< flips the result of calculatenormal()
+};
 
 namespace Strings {
     extern ustring camera, common, object, shader;

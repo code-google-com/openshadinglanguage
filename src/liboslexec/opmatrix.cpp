@@ -54,7 +54,7 @@ namespace pvt {
 // Specialized version of matrix constructor from floats, without or without
 // a space name, and in 1-float and 16-float varieties.
 template <bool using_space, int nfloats>
-static DECLOP (OP_matrix_specialized_floats)
+static DECLPSEUDOOP (OP_matrix_specialized_floats)
 {
     Symbol &Result (exec->sym (args[0]));
     Symbol &Space (exec->sym (args[1]));
@@ -226,7 +226,7 @@ DECLOP (OP_matrix)
 
 // matrix[row][col] = val
 template<class SRC>
-static DECLOP (specialized_mxcompassign)
+static DECLPSEUDOOP (specialized_mxcompassign)
 {
     Symbol &Result (exec->sym (args[0]));
     Symbol &Row (exec->sym (args[1]));

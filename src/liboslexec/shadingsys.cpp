@@ -39,6 +39,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "OpenImageIO/filesystem.h"
 
 #include "oslexec_pvt.h"
+
+#include "llvm_headers.h"
+
 using namespace OSL;
 using namespace OSL::pvt;
 
@@ -131,7 +134,12 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
       m_lockgeom_default (false), m_optimize (1),
       m_commonspace_synonym("world"),
       m_in_group (false),
-      m_global_heap_total (0)
+      m_global_heap_total (0),
+      m_llvm_linker(0),
+      m_llvm_module(0),
+      m_llvm_exec(0),
+      m_opt_function(0),
+      m_opt_ipo(0)
 {
     m_stat_shaders_loaded = 0;
     m_stat_shaders_requested = 0;
@@ -150,12 +158,12 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
     m_stat_syms_with_derivs = 0;
     m_stat_optimization_time = 0;
 
-    init_global_heap_offsets ();
+    //init_global_heap_offsets ();
 
     // If client didn't supply an error handler, just use the default
     // one that echoes to the terminal.
     if (! m_err) {
-        m_err = & ErrorHandler::default_handler ();
+       m_err = & ErrorHandler::default_handler ();
     }
 
 #if 0
@@ -176,7 +184,43 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
     }
 }
 
+void
+ShadingSystemImpl::SetupLLVM() {
+  // Setup already
+  if (m_llvm_exec != NULL) return;
+  printf("Setting up LLVM\n");
+  m_llvm_context = new llvm::LLVMContext();
+  printf("Initializing Native Target\n");
+  llvm::InitializeNativeTarget();
 
+  //printf("Loading LLVM Bitcode\n");
+  m_llvm_module = new llvm::Module("oslmodule", getLLVMContext());//LoadAllBitcode();
+
+  printf("Building an Execution Engine\n");
+  std::string error_msg;
+
+  //m_llvm_exec = llvm::EngineBuilder(m_llvm_module).setErrorStr(&error_msg).create();
+  m_llvm_exec = llvm::ExecutionEngine::create(m_llvm_module,
+                                              false,
+                                              &error_msg,
+                                              llvm::CodeGenOpt::Default,
+                                              false);
+  if (!m_llvm_exec) {
+    printf("Failed to create engine: %s\n", error_msg.c_str());
+  }
+  //printf("Disabling lazy JIT\n");
+  //m_llvm_exec->DisableLazyCompilation();
+  printf("Setting up pass managers\n");
+  SetupLLVMOptimizer();
+  //IPOOptimizer()->run(*all_ops);
+  //printf("LLVM ready!\n");
+
+  printf("Adding in extern functions\n");
+  std::vector<const llvm::Type*> printf_params;
+  printf_params.push_back(llvm::Type::getInt8PtrTy(getLLVMContext()));
+  llvm::FunctionType* printf_type = llvm::FunctionType::get(llvm::Type::getVoidTy(getLLVMContext()), printf_params, true /* varargs */);
+  m_llvm_module->getOrInsertFunction("llvm_osl_printf", printf_type);
+}
 
 ShadingSystemImpl::~ShadingSystemImpl ()
 {
@@ -185,7 +229,126 @@ ShadingSystemImpl::~ShadingSystemImpl ()
     // we asked for a shared one.
 }
 
+llvm::Module*
+ShadingSystemImpl::LoadAllBitcode() {
+  using namespace llvm;
+#if 1
+  m_llvm_linker = new Linker("osl", "all_ops", getLLVMContext(), Linker::Verbose);
 
+  const char* bitcode_files[] = {
+    "background.cpp.bc",
+    "bsdf_ashikhmin_velvet.cpp.bc",
+    "bsdf_cloth.cpp.bc",
+    "bsdf_cloth_specular.cpp.bc",
+    "bsdf_diffuse.cpp.bc",
+    "bsdf_fakefur.cpp.bc",
+    "bsdf_hair.cpp.bc",
+    "bsdf_microfacet.cpp.bc",
+    "bsdf_phong.cpp.bc",
+    "bsdf_reflection.cpp.bc",
+    "bsdf_refraction.cpp.bc",
+    "bsdf_transparent.cpp.bc",
+    "bsdf_ward.cpp.bc",
+    "bsdf_westin.cpp.bc",
+    "bssrdf.cpp.bc",
+    "emissive.cpp.bc",
+    "oparray.cpp.bc",
+    "opassign.cpp.bc",
+    "opattribute.cpp.bc",
+    "opcolor.cpp.bc",
+    "opcompare.cpp.bc",
+    "opcontrol.cpp.bc",
+    "opderivs.cpp.bc",
+    "opinteger.cpp.bc",
+    "opmath.cpp.bc",
+    "opmathfunc.cpp.bc",
+    "opmatrix.cpp.bc",
+    "opmessage.cpp.bc",
+    "opmisc.cpp.bc",
+    "opnoise.cpp.bc",
+    "opspline.cpp.bc",
+    "opstring.cpp.bc",
+    "optexture.cpp.bc",
+    "opvector.cpp.bc",
+    "vol_subsurface.cpp.bc"};
+
+  int num_files = static_cast<int>(sizeof(bitcode_files)/sizeof(const char*));
+
+#if 0
+  std::vector<llvm::sys::Path> files;
+  for (int i = 0; i < num_files; i++) {
+    char buf[1024];
+    sprintf(buf, "/Users/boulos/projects/osl/dist/macosx/lib/%s", bitcode_files[i]);
+    files.push_back(llvm::sys::Path(buf));
+  }
+  m_llvm_linker->LinkInFiles(files);
+
+#else
+
+  for (int i = 0; i < num_files; i++) {
+    break;
+    char buf[1024];
+    sprintf(buf, "/Users/boulos/projects/osl/dist/macosx/lib/%s", bitcode_files[i]);
+    //printf("Linking in '%s'\n", buf);
+    MemoryBuffer* mb = MemoryBuffer::getFile(buf);
+    Module* op_module = ParseBitcodeFile(mb, getLLVMContext());
+    m_llvm_linker->LinkInModule(op_module);
+    delete mb;
+  }
+#endif
+
+  return m_llvm_linker->getModule();
+#else
+  llvm::Archive*
+  llvm::MemoryBuffer* all_ops_file = MemoryBuffer::getFile("/Users/boulos/projects/osl/dist/macosx/lib/osl_ops.bca");
+  std::string error_msg;
+  llvm::Module* lazy_module = llvm::getLazyBitcodeModule(all_ops_file, getLLVMContext(), &error_msg);
+  if (!lazy_module) {
+    printf("Failed to getLazyBitcodeModule: Error %s\n", error_msg.c_str());
+    exit(-1);
+  }
+  return lazy_module;
+#endif
+}
+
+void
+ShadingSystemImpl::SetupLLVMOptimizer() {
+  //m_opt_ipo = new PassManager();
+  //m_opt_ipo->add(llvm::createFunctionInliningPass(2000));
+
+  printf("Making FunctionPassManager\n");
+  m_opt_function = new llvm::FunctionPassManager(m_llvm_module);
+  printf("Adding TargetInfo\n");
+  m_opt_function->add(new llvm::TargetData(*(m_llvm_exec->getTargetData())));
+  // Now change things to registers
+  printf("Adding mem2reg\n");
+  m_opt_function->add(llvm::createPromoteMemoryToRegisterPass());
+  // Combine instructions where possible
+  printf("Adding instcomb\n");
+  m_opt_function->add(llvm::createInstructionCombiningPass());
+  // resassociate exprssions (a = x + (3 + y) -> a = x + y + 3)
+  printf("Adding reassoc\n");
+  m_opt_function->add(llvm::createReassociatePass());
+  // eliminate common sub-expressions
+  printf("Adding gvn\n");
+  m_opt_function->add(llvm::createGVNPass());
+  // Simplify the call graph if possible
+  printf("Adding simpcfg\n");
+  m_opt_function->add(llvm::createCFGSimplificationPass());
+
+  printf("Adding DCE\n");
+  m_opt_function->add(llvm::createAggressiveDCEPass());
+  // Try to make stuff into registers one last time.
+  printf("Adding mem2reg (again)\n");
+  m_opt_function->add(llvm::createPromoteMemoryToRegisterPass());
+
+  // Always add verifier?
+  printf("Adding verifier\n");
+  m_opt_function->add(llvm::createVerifierPass());
+
+  printf("Performing init\n");
+  m_opt_function->doInitialization();
+}
 
 bool
 ShadingSystemImpl::attribute (const std::string &name, TypeDesc type,

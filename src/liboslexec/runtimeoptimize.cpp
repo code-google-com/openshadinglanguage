@@ -39,6 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "oslops.h"
 #include "runtimeoptimize.h"
 #include "../liboslcomp/oslcomp_pvt.h"
+
+#include "llvm_headers.h"
 using namespace OSL;
 using namespace OSL::pvt;
 
@@ -2589,13 +2591,14 @@ RuntimeOptimizer::optimize_group ()
 
     // Optimize each layer
     size_t old_nsyms = 0, old_nops = 0;
+
     for (int layer = 0;  layer < nlayers;  ++layer) {
         set_inst (layer);
         if (m_shadingsys.debug() && m_shadingsys.optimize() >= 1) {
             std::cerr << "Before optimizing layer " << inst()->layername() 
                       << ", I get:\n" << inst()->print()
                       << "\n--------------------------------\n\n";
-            }
+        }
 
         old_nsyms += inst()->symbols().size();
         old_nops += inst()->ops().size();
@@ -2670,6 +2673,14 @@ ShadingSystemImpl::optimize_group (ShadingAttribState &attribstate,
 
     RuntimeOptimizer rop (*this, group);
     rop.optimize_group ();
+
+    bool do_llvm = true;
+    if (do_llvm) {
+      SetupLLVM();
+      for (int i = 0; i < group.nlayers(); i++) {
+        group[i]->llvm_version = group[i]->buildLLVMVersion(getLLVMContext(), m_llvm_module);
+      }
+    }
 
     attribstate.changed_shaders ();
     group.m_optimized = true;

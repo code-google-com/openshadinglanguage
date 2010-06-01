@@ -51,7 +51,8 @@ namespace OSL {
 namespace pvt {
 
 
-extern DECLOP (triple_ctr);   // definition is elsewhere
+DECLOP (triple_ctr);   // definition is elsewhere
+
 
 
 namespace {

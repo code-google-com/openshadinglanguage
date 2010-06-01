@@ -6,7 +6,7 @@ test ()
         printf ("float:\n");
         float a = 0.7;
         float b = 0.2;
-        float z = 0;
+        float z = 0.0; // note(boulos): if we use 0, it makes z an int!
         printf ("  %g + %g = %g\n", a, b, a+b);
         printf ("  %g - %g = %g\n", a, b, a-b);
         printf ("  %g * %g = %g\n", a, b, a*b);
@@ -41,6 +41,7 @@ test ()
         printf ("  %d / %g = %g\n", b, a, b/a);
         printf ("\n");
     }
+
 
     // triple
     {

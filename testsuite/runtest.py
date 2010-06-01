@@ -29,7 +29,7 @@ def runtest (command, outputs, cleanfiles="", failureok=0) :
     # print "cmdret = " + str(cmdret)
 
     if cmdret != 0 and failureok == 0 :
-        print "FAIL"
+        print "FAIL CRASH?"
         return (1)
 
     err = 0

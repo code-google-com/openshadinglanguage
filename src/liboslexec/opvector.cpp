@@ -143,7 +143,7 @@ multDirMatrix (const Matrix44 &M, Dual2<Vec3> &in, Dual2<Vec3> &out)
 /// Implementation of transform (matrix, triple).
 /// Templated on the type of transformation needed (point, vector, normal).
 template<int xformtype>
-DECLOP (triple_matrix_transform)
+DECLPSEUDOOP (triple_matrix_transform)
 {
     DASSERT (nargs == 3);
     Symbol &Result (exec->sym (args[0]));
@@ -248,7 +248,7 @@ DECLOP (triple_matrix_transform)
 /// Implementation of the constructor "triple (string, float, float, float)".
 /// Templated on the type of transformation needed (point, vector, normal).
 template<int xformtype>
-DECLOP (triple_ctr_transform)
+DECLPSEUDOOP (triple_ctr_transform)
 {
     Symbol &Result (exec->sym (args[0]));
     Symbol &Space (exec->sym (args[1]));
@@ -356,7 +356,7 @@ DECLOP (triple_ctr_transform)
 /// After doing the sanity checks, a specific implementation is chosen
 /// and will be used directly for all subsequent calls to this op.
 template<int xformtype>
-DECLOP (triple_ctr_shadeop)
+DECLPSEUDOOP (triple_ctr_shadeop)
 {
     ASSERT (nargs == 4 || nargs == 5);
     Symbol &Result (exec->sym (args[0]));
@@ -595,7 +595,7 @@ DECLOP (OP_compref)
 
 // result[index] = val
 template<class SRC>
-static DECLOP (specialized_compassign)
+static DECLPSEUDOOP (specialized_compassign)
 {
     Symbol &Result (exec->sym (args[0]));
     Symbol &Index (exec->sym (args[1]));

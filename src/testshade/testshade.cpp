@@ -192,6 +192,7 @@ main (int argc, const char *argv[])
     Timer timer;
     SimpleRenderer rend;
     shadingsys = ShadingSystem::create (&rend, NULL, &errhandler);
+    shadingsys->attribute("lockgeom", 1);
 
     shadingsys->ShaderGroupBegin ();
     getargs (argc, argv);
@@ -224,6 +225,9 @@ main (int argc, const char *argv[])
     std::vector<Vec3> gP (npoints);
     std::vector<Vec3> gdP_dx (npoints);
     std::vector<Vec3> gdP_dy (npoints);
+    std::vector<Vec3> gI (npoints);
+    std::vector<Vec3> gdI_dx (npoints);
+    std::vector<Vec3> gdI_dy (npoints);
     std::vector<Vec3> gN (npoints);
     std::vector<float> gu (npoints);
     std::vector<float> gv (npoints);
@@ -236,6 +240,9 @@ main (int argc, const char *argv[])
     shaderglobals.P.init (&gP[0], sizeof(gP[0]));
     shaderglobals.dPdx.init (&gdP_dx[0], sizeof(gdP_dx[0]));
     shaderglobals.dPdy.init (&gdP_dy[0], sizeof(gdP_dy[0]));
+    shaderglobals.I.init (&gI[0], sizeof(gI[0]));
+    shaderglobals.dIdx.init (&gdI_dx[0], sizeof(gdI_dx[0]));
+    shaderglobals.dIdy.init (&gdI_dy[0], sizeof(gdI_dy[0]));
     shaderglobals.N.init (&gN[0], sizeof(gN[0]));
     shaderglobals.Ng.init (&gN[0], sizeof(gN[0]));  // Ng = N for now
     shaderglobals.u.init (&gu[0], sizeof(gu[0]));
@@ -248,8 +255,14 @@ main (int argc, const char *argv[])
     shaderglobals.dPsdy.init (&gPs_dy[0], sizeof(gPs_dy[0]));
     shaderglobals.renderstate.init (&rstates[0], sizeof(rstates[0]));
     shaderglobals.flipHandedness = false;
+    shaderglobals.isshadowray = false;
+    shaderglobals.iscameraray = false;
     float time = 0.0f;
     shaderglobals.time.init (&time, 0);
+    float dtime = 0.f;
+    shaderglobals.dtime.init (&dtime, 0);
+    std::vector<Vec3> gdPdtime (npoints);
+    shaderglobals.dPdtime.init (&gdPdtime[0], sizeof(gdPdtime[0]));
     float surfacearea = 1;
     shaderglobals.surfacearea.init (&surfacearea, 0);
 
@@ -292,7 +305,7 @@ main (int argc, const char *argv[])
 
     for (int j = 0;  j < yres;  ++j) {
         for (int i = 0;  i < xres;  ++i) {
-            int n = j*yres + i;
+            int n = j*xres + i;
             gu[n] = (xres == 1) ? 0.5 : (float)i/(xres-1);
             gv[n] = (yres == 1) ? 0.5 : (float)j/(yres-1);
             gP[n] = Vec3 (gu[n], gv[n], 1.0f);

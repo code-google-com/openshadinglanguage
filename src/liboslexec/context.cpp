@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "oslexec_pvt.h"
 #include "oslops.h"
 
+#include "llvm_headers.h"
 
 #ifdef OSL_NAMESPACE
 namespace OSL_NAMESPACE {
@@ -75,6 +76,8 @@ ShadingContext::bind (int n, ShadingAttribState &sas, ShaderGlobals &sg)
     m_curuse = ShadUseUnknown;
     m_heap_allotted = 0;
     m_closures_allotted = 0;
+
+    //bool run_llvm = true;
 
     // Optimize if we haven't already
     for (int i = 0;  i < ShadUseLast;  ++i) {

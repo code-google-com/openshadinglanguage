@@ -53,7 +53,7 @@ namespace pvt {
 // Heavy lifting of 'assign', this is a specialized version that knows
 // the types of the arguments.
 template <class RET, class SRC>
-static DECLOP (specialized_assign)
+static DECLPSEUDOOP (specialized_assign)
 {
     // Get references to the symbols this op accesses
     Symbol &Result (exec->sym (args[0]));
@@ -95,7 +95,7 @@ static DECLOP (specialized_assign)
 
 // Special version of assign for when the source and result are the same
 // exact type, so we can just memcpy.
-static DECLOP (assign_copy)
+static DECLPSEUDOOP (assign_copy)
 {
     // Get references to the symbols this op accesses
     Symbol &Result (exec->sym (args[0]));

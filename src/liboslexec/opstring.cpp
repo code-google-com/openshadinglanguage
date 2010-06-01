@@ -382,7 +382,7 @@ DECLOP (OP_substr)
 // without match results being saved, and will be specialized for one of
 // those 4 cases by template expansion.
 template <bool fullmatch, bool do_match_results>
-DECLOP (regex_search_specialized)
+DECLPSEUDOOP (regex_search_specialized)
 {
     Symbol &Result (exec->sym (args[0]));
     Symbol &Subject (exec->sym (args[1]));
