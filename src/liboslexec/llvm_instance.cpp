@@ -19,13 +19,13 @@ namespace pvt {
 typedef std::map<std::string, AllocaInst*> AllocationMap;
 typedef std::map<int, BasicBlock*> BasicBlockMap;
 
-const StructType* getShaderGlobalType(LLVMContext& context) {
-  std::vector<const Type*> vec3_types(3, Type::getFloatTy(context));
-  const StructType* vec3_type = StructType::get(context, vec3_types);
-  const Type* float_type = Type::getFloatTy(context);
+const StructType* getShaderGlobalType(LLVMContext &llvm_context) {
+  std::vector<const Type*> vec3_types(3, Type::getFloatTy(llvm_context));
+  const StructType* vec3_type = StructType::get(llvm_context, vec3_types);
+  const Type* float_type = Type::getFloatTy(llvm_context);
   // NOTE(boulos): Bool is a C++ concept that maps to int in C.
-  const Type* bool_type = Type::getInt32Ty(context);
-  const PointerType* void_ptr_type = Type::getInt8PtrTy(context);
+  const Type* bool_type = Type::getInt32Ty(llvm_context);
+  const PointerType* void_ptr_type = Type::getInt8PtrTy(llvm_context);
 
   std::vector<const Type*> sg_types;
   // P, dPdx, dPdy, I, dIdx, dIdy, N, Ng
@@ -65,7 +65,7 @@ const StructType* getShaderGlobalType(LLVMContext& context) {
     sg_types.push_back(bool_type);
   }
 
-  return StructType::get(context, sg_types);
+  return StructType::get(llvm_context, sg_types);
 }
 
 int ShaderGlobalNameToIndex(ustring name, int deriv) {
@@ -196,7 +196,7 @@ getLLVMSymbolBase(const Symbol& sym, AllocationMap& named_values, Value* sg_ptr)
 }
 
 Value*
-getOrAllocateLLVMSymbol(LLVMContext& context, const Symbol& sym, AllocationMap& named_values, Value* sg_ptr, Function* f) {
+getOrAllocateLLVMSymbol(LLVMContext &llvm_context, const Symbol& sym, AllocationMap& named_values, Value* sg_ptr, Function* f) {
   Symbol* dealiased = sym.dealias();
   std::string mangled_name = dealiased->mangled();
   AllocationMap::iterator map_iter = named_values.find(mangled_name);
@@ -211,12 +211,12 @@ getOrAllocateLLVMSymbol(LLVMContext& context, const Symbol& sym, AllocationMap& 
     printf("Making a type with %d %ss for symbol '%s'\n", total_size, (is_float) ? "float" : "int", mangled_name.c_str());
     AllocaInst* allocation = 0;
     if (total_size == 1) {
-      ConstantInt* type_len = ConstantInt::get(context, APInt(32, total_size));
-      allocation = tmp_builder.CreateAlloca((is_float) ? Type::getFloatTy(context) : Type::getInt32Ty(context), type_len, mangled_name.c_str());
+      ConstantInt* type_len = ConstantInt::get(llvm_context, APInt(32, total_size));
+      allocation = tmp_builder.CreateAlloca((is_float) ? Type::getFloatTy(llvm_context) : Type::getInt32Ty(llvm_context), type_len, mangled_name.c_str());
     } else {
-      std::vector<const Type*> types(total_size, (is_float) ? Type::getFloatTy(context) : Type::getInt32Ty(context));
-      StructType* struct_type = StructType::get(context, types);
-      ConstantInt* num_structs = ConstantInt::get(context, APInt(32, 1));
+      std::vector<const Type*> types(total_size, (is_float) ? Type::getFloatTy(llvm_context) : Type::getInt32Ty(llvm_context));
+      StructType* struct_type = StructType::get(llvm_context, types);
+      ConstantInt* num_structs = ConstantInt::get(llvm_context, APInt(32, 1));
       allocation = tmp_builder.CreateAlloca(struct_type, num_structs, mangled_name.c_str());
     }
 
@@ -277,15 +277,15 @@ LoadParam(const Symbol& sym, int component, int deriv, Value* sg_ptr, IRBuilder<
 }
 
 Value*
-loadLLVMValue(const Symbol& sym, int component, int deriv, AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder) {
+loadLLVMValue(LLVMContext &llvm_context, const Symbol& sym, int component, int deriv, AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder) {
   // Regardless of what object this is, if it doesn't have derivs but we're asking for them, return 0
   bool has_derivs = sym.has_derivs();
   if (!has_derivs && deriv != 0) {
     // Asking for the value of our derivative, but we don't have one. Return 0.
     if (sym.typespec().is_floatbased()) {
-      return ConstantFP::get(builder.getContext(), APFloat(0.f));
+      return ConstantFP::get(llvm_context, APFloat(0.f));
     } else {
-      return ConstantInt::get(builder.getContext(), APInt(32, 0));
+      return ConstantInt::get(llvm_context, APInt(32, 0));
     }
   }
 
@@ -349,7 +349,7 @@ getPrintfFunc(Module* module) {
 }
 
 void
-llvm_printf_op(ShaderInstance* inst, const Opcode& op, AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder, Function* llvm_printf_func) {
+llvm_printf_op(llvm::LLVMContext &context, ShaderInstance* inst, const Opcode& op, AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder, Function* llvm_printf_func) {
   // Prepare the args for the call
   SmallVector<Value*, 16> call_args;
   Symbol& format_sym = *inst->argsymbol(op.firstarg() + 0);
@@ -416,11 +416,11 @@ llvm_printf_op(ShaderInstance* inst, const Opcode& op, AllocationMap& named_valu
         if (i != 0) s += " ";
         s += ourformat;
 
-        Value* loaded = loadLLVMValue(sym, i, 0, named_values, sg_ptr, builder);
+        Value* loaded = loadLLVMValue (context, sym, i, 0, named_values, sg_ptr, builder);
         // NOTE(boulos): Annoyingly varargs makes it so that things need
         // to be upconverted from float to double (who knew?)
         if (sym.typespec().is_floatbased()) {
-          call_args.push_back(builder.CreateFPExt(loaded, Type::getDoubleTy(builder.getContext())));
+            call_args.push_back(builder.CreateFPExt(loaded, Type::getDoubleTy(inst->shadingsys().getLLVMContext())));
         } else {
           call_args.push_back(loaded);
         }
@@ -459,18 +459,18 @@ llvm_printf_op(ShaderInstance* inst, const Opcode& op, AllocationMap& named_valu
 }
 
 Value*
-llvm_float_to_int(Value* fval, IRBuilder<>& builder) {
-  return builder.CreateFPToSI(fval, Type::getInt32Ty(builder.getContext()));
+llvm_float_to_int(llvm::LLVMContext &llvm_context, Value* fval, IRBuilder<>& builder) {
+    return builder.CreateFPToSI(fval, Type::getInt32Ty(llvm_context));
 }
 
 Value*
-llvm_int_to_float(Value* ival, IRBuilder<>& builder) {
-  return builder.CreateSIToFP(ival, Type::getFloatTy(builder.getContext()));
+llvm_int_to_float(llvm::LLVMContext &llvm_context, Value* ival, IRBuilder<>& builder) {
+    return builder.CreateSIToFP(ival, Type::getFloatTy(llvm_context));
 }
 
 // Simple (pointwise) binary ops (+-*/)
 void
-llvm_binary_op(const Opcode& op, const Symbol& dst, const Symbol& src1, const Symbol& src2, AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder) {
+llvm_binary_op(llvm::LLVMContext &llvm_context, const Opcode& op, const Symbol& dst, const Symbol& src1, const Symbol& src2, AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder) {
   bool dst_derivs = dst.has_derivs();
   int num_components = dst.typespec().simpletype().aggregate;
   bool is_float = dst.typespec().is_floatbased();
@@ -480,8 +480,8 @@ llvm_binary_op(const Opcode& op, const Symbol& dst, const Symbol& src1, const Sy
 
   for (int i = 0; i < num_components; i++) {
     // Get src1/2 component i
-    Value* src1_load = loadLLVMValue(src1, i, 0, named_values, sg_ptr, builder);
-    Value* src2_load = loadLLVMValue(src2, i, 0, named_values, sg_ptr, builder);
+      Value* src1_load = loadLLVMValue(llvm_context, src1, i, 0, named_values, sg_ptr, builder);
+      Value* src2_load = loadLLVMValue(llvm_context, src2, i, 0, named_values, sg_ptr, builder);
 
     if (!src1_load) return;
     if (!src2_load) return;
@@ -493,9 +493,9 @@ llvm_binary_op(const Opcode& op, const Symbol& dst, const Symbol& src1, const Sy
     if (need_float_op) {
       // upconvert int -> float for the op if necessary
       if (src1_float && !src2_float) {
-        src2_val = llvm_int_to_float(src2_load, builder);
+          src2_val = llvm_int_to_float(llvm_context, src2_load, builder);
       } else if (!src1_float && src2_float) {
-        src1_val = llvm_int_to_float(src1_load, builder);
+          src1_val = llvm_int_to_float(llvm_context, src1_load, builder);
       } else {
         // both floats, do nothing
       }
@@ -532,10 +532,10 @@ llvm_binary_op(const Opcode& op, const Symbol& dst, const Symbol& src1, const Sy
       // if our op type doesn't match result, convert
       if (is_float && !need_float_op) {
         // Op was int, but we need to store float
-        result = llvm_int_to_float(result, builder);
+          result = llvm_int_to_float (llvm_context, result, builder);
       } else if (!is_float && need_float_op) {
         // Op was float, but we need to store int
-        result = llvm_float_to_int(result, builder);
+          result = llvm_float_to_int (llvm_context, result, builder);
       } // otherwise just fine
       storeLLVMValue(result, dst, i, 0, named_values, sg_ptr, builder);
     }
@@ -549,7 +549,7 @@ llvm_binary_op(const Opcode& op, const Symbol& dst, const Symbol& src1, const Sy
 
 // Simple (pointwise) unary ops (Neg, Abs, Sqrt, Ceil, Floor, ..., Log2, Log10, Erf, Erfc, IsNan/IsInf/IsFinite)
 void
-llvm_unary_op(const Opcode& op, const Symbol& dst, const Symbol& src, AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder) {
+llvm_unary_op(llvm::LLVMContext &llvm_context, const Opcode& op, const Symbol& dst, const Symbol& src, AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder) {
   bool dst_derivs = dst.has_derivs();
   int num_components = dst.typespec().simpletype().aggregate;
 
@@ -558,7 +558,7 @@ llvm_unary_op(const Opcode& op, const Symbol& dst, const Symbol& src, Allocation
 
   for (int i = 0; i < num_components; i++) {
     // Get src1/2 component i
-    Value* src_load = loadLLVMValue(src, i, 0, named_values, sg_ptr, builder);
+      Value* src_load = loadLLVMValue(llvm_context, src, i, 0, named_values, sg_ptr, builder);
     if (!src_load) return;
 
     Value* src_val = src_load;
@@ -598,10 +598,10 @@ llvm_unary_op(const Opcode& op, const Symbol& dst, const Symbol& src, Allocation
       // if our op type doesn't match result, convert
       if (dst_float && !src_float) {
         // Op was int, but we need to store float
-        result = llvm_int_to_float(result, builder);
+          result = llvm_int_to_float (llvm_context, result, builder);
       } else if (!dst_float && src_float) {
         // Op was float, but we need to store int
-        result = llvm_float_to_int(result, builder);
+          result = llvm_float_to_int (llvm_context, result, builder);
       } // otherwise just fine
       storeLLVMValue(result, dst, i, 0, named_values, sg_ptr, builder);
     }
@@ -616,7 +616,7 @@ llvm_unary_op(const Opcode& op, const Symbol& dst, const Symbol& src, Allocation
 
 // Simple assignment
 void
-llvm_assign_op(const Opcode& op, const Symbol& dst, const Symbol& src, AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder) {
+llvm_assign_op(llvm::LLVMContext &llvm_context, const Opcode& op, const Symbol& dst, const Symbol& src, AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder) {
   bool dst_derivs = dst.has_derivs();
   int num_components = dst.typespec().simpletype().aggregate;
 
@@ -627,16 +627,16 @@ llvm_assign_op(const Opcode& op, const Symbol& dst, const Symbol& src, Allocatio
 
   for (int i = 0; i < num_components; i++) {
     // Get src component i
-    Value* src_val = loadLLVMValue(src, i, 0, named_values, sg_ptr, builder);
+      Value* src_val = loadLLVMValue(llvm_context, src, i, 0, named_values, sg_ptr, builder);
     if (!src_val) return;
 
     // Perform the assignment
     if (dst_float && !src_float) {
       // need int -> float
-      src_val = builder.CreateSIToFP(src_val, Type::getFloatTy(builder.getContext()));
+        src_val = builder.CreateSIToFP(src_val, Type::getFloatTy(llvm_context));
     } else if (!dst_float && src_float) {
       // float -> int
-      src_val = builder.CreateFPToSI(src_val, Type::getInt32Ty(builder.getContext()));
+        src_val = builder.CreateFPToSI(src_val, Type::getInt32Ty(llvm_context));
     }
     storeLLVMValue(src_val, dst, i, 0, named_values, sg_ptr, builder);
 
@@ -649,7 +649,7 @@ llvm_assign_op(const Opcode& op, const Symbol& dst, const Symbol& src, Allocatio
 
 // Comparison ops (though other binary -> scalar ops like dot might end up being similar)
 void
-llvm_compare_op(const Opcode& op, const Symbol& dst, const Symbol& src1, const Symbol& src2, AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder) {
+llvm_compare_op(llvm::LLVMContext &llvm_context, const Opcode& op, const Symbol& dst, const Symbol& src1, const Symbol& src2, AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder) {
   bool dst_derivs = dst.has_derivs();
   int num_components = dst.typespec().simpletype().aggregate;
 
@@ -660,8 +660,8 @@ llvm_compare_op(const Opcode& op, const Symbol& dst, const Symbol& src1, const S
 
   for (int i = 0; i < num_components; i++) {
     // Get src1/2 component i
-    Value* src1_load = loadLLVMValue(src1, i, 0, named_values, sg_ptr, builder);
-    Value* src2_load = loadLLVMValue(src2, i, 0, named_values, sg_ptr, builder);
+      Value* src1_load = loadLLVMValue(llvm_context, src1, i, 0, named_values, sg_ptr, builder);
+      Value* src2_load = loadLLVMValue(llvm_context, src2, i, 0, named_values, sg_ptr, builder);
 
     if (!src1_load) return;
     if (!src2_load) return;
@@ -673,9 +673,9 @@ llvm_compare_op(const Opcode& op, const Symbol& dst, const Symbol& src1, const S
     if (need_float_op) {
       // upconvert int -> float for the op if necessary
       if (src1_float && !src2_float) {
-        src2_val = llvm_int_to_float(src2_load, builder);
+          src2_val = llvm_int_to_float (llvm_context, src2_load, builder);
       } else if (!src1_float && src2_float) {
-        src1_val = llvm_int_to_float(src1_load, builder);
+          src1_val = llvm_int_to_float (llvm_context, src1_load, builder);
       } else {
         // both floats, do nothing
       }
@@ -730,11 +730,11 @@ llvm_compare_op(const Opcode& op, const Symbol& dst, const Symbol& src1, const S
 
   if (final_result) {
     // Convert the single bit bool into an int for now.
-    final_result = builder.CreateZExt(final_result, Type::getInt32Ty(builder.getContext()));
+      final_result = builder.CreateZExt(final_result, Type::getInt32Ty(llvm_context));
 
     bool is_float = dst.typespec().is_floatbased();
     if (is_float) {
-      final_result = llvm_int_to_float(final_result, builder);
+        final_result = llvm_int_to_float (llvm_context, final_result, builder);
     }
 
     storeLLVMValue(final_result, dst, 0, 0, named_values, sg_ptr, builder);
@@ -746,11 +746,11 @@ llvm_compare_op(const Opcode& op, const Symbol& dst, const Symbol& src1, const S
 }
 
 void
-llvm_if_op(const Opcode& op, const Symbol& cond, AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder, int op_index, BasicBlockMap& bb_map) {
+llvm_if_op(llvm::LLVMContext &llvm_context, const Opcode& op, const Symbol& cond, AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder, int op_index, BasicBlockMap& bb_map) {
   // Load the condition variable
-  Value* cond_load = loadLLVMValue(cond, 0, 0, named_values, sg_ptr, builder);
+    Value* cond_load = loadLLVMValue(llvm_context, cond, 0, 0, named_values, sg_ptr, builder);
   // Convert the int to a bool via truncation
-  Value* cond_bool = builder.CreateTrunc(cond_load, Type::getInt1Ty(builder.getContext()));
+    Value* cond_bool = builder.CreateTrunc(cond_load, Type::getInt1Ty(llvm_context));
   // Branch on the condition, to our blocks
   BasicBlock* then_block = bb_map[op_index+1];
   BasicBlock* else_block = bb_map[op.jump(0)];
@@ -768,7 +768,7 @@ llvm_if_op(const Opcode& op, const Symbol& cond, AllocationMap& named_values, Va
 }
 
 void
-llvm_loop_op(const Opcode& op, const Symbol& cond, AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder, int op_index, BasicBlockMap& bb_map) {
+llvm_loop_op(llvm::LLVMContext &llvm_context, const Opcode& op, const Symbol& cond, AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder, int op_index, BasicBlockMap& bb_map) {
   // Branch on the condition, to our blocks
   BasicBlock* init_block = bb_map[op_index+1];
   BasicBlock* cond_block = bb_map[op.jump(0)];
@@ -796,9 +796,9 @@ llvm_loop_op(const Opcode& op, const Symbol& cond, AllocationMap& named_values, 
 
   builder.SetInsertPoint(cond_block);
   // Load the condition variable (it will have been computed by now)
-  Value* cond_load = loadLLVMValue(cond, 0, 0, named_values, sg_ptr, builder);
+  Value* cond_load = loadLLVMValue(llvm_context, cond, 0, 0, named_values, sg_ptr, builder);
   // Convert the int to a bool via truncation
-  Value* cond_bool = builder.CreateTrunc(cond_load, Type::getInt1Ty(builder.getContext()));
+  Value* cond_bool = builder.CreateTrunc(cond_load, Type::getInt1Ty(llvm_context));
   // Jump to either LoopBody or AfterLoop
   builder.CreateCondBr(cond_bool, body_block, after_block);
 
@@ -820,7 +820,7 @@ llvm_loop_op(const Opcode& op, const Symbol& cond, AllocationMap& named_values, 
 }
 
 void
-AssignInitialConstant(const Symbol& sym, AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder) {
+AssignInitialConstant(llvm::LLVMContext &llvm_context, const Symbol& sym, AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder) {
   int num_components = sym.typespec().simpletype().aggregate;
   bool is_float = sym.typespec().is_floatbased();
   if (sym.is_constant() && num_components == 1 && !sym.has_derivs()) {
@@ -830,11 +830,11 @@ AssignInitialConstant(const Symbol& sym, AllocationMap& named_values, Value* sg_
     printf("Assigning initial value for symbol '%s' = ", sym.mangled().c_str());
     if (is_float) {
       float fval = *((float*)sym.data());
-      init_val = ConstantFP::get(builder.getContext(), APFloat(fval));
+      init_val = ConstantFP::get(llvm_context, APFloat(fval));
       printf("%f\n", fval);
     } else {
       int ival = *((int*)sym.data());
-      init_val = ConstantInt::get(builder.getContext(), APInt(32, ival));
+      init_val = ConstantInt::get(llvm_context, APInt(32, ival));
       printf("%d\n", ival);
     }
     storeLLVMValue(init_val, sym, 0, 0, named_values, sg_ptr, builder);
@@ -872,7 +872,7 @@ ShaderInstance::buildLLVMVersion(llvm::LLVMContext& llvm_context,
     // Make space
     getOrAllocateLLVMSymbol(llvm_context, s, named_values, sg_ptr, layer_func);
     if (s.is_constant())
-      AssignInitialConstant(s, named_values, sg_ptr, builder);
+        AssignInitialConstant(llvm_context, s, named_values, sg_ptr, builder);
   }
 
   // All the symbols are stack allocated now.
@@ -982,7 +982,7 @@ ShaderInstance::buildLLVMVersion(llvm::LLVMContext& llvm_context,
           SkipSymbol(src2))
         continue;
 
-      llvm_binary_op(op, dst, src1, src2, named_values, sg_ptr, builder);
+      llvm_binary_op (llvm_context, op, dst, src1, src2, named_values, sg_ptr, builder);
     } else if (op.opname() == op_lt ||
                op.opname() == op_le ||
                op.opname() == op_eq ||
@@ -998,7 +998,7 @@ ShaderInstance::buildLLVMVersion(llvm::LLVMContext& llvm_context,
           SkipSymbol(src2))
         continue;
 
-      llvm_compare_op(op, dst, src1, src2, named_values, sg_ptr, builder);
+      llvm_compare_op (llvm_context, op, dst, src1, src2, named_values, sg_ptr, builder);
     } else if (op.opname() == op_neg) {
       Symbol& dst = *argsymbol(op.firstarg() + 0);
       Symbol& src = *argsymbol(op.firstarg() + 1);
@@ -1006,15 +1006,15 @@ ShaderInstance::buildLLVMVersion(llvm::LLVMContext& llvm_context,
           SkipSymbol(src))
         continue;
 
-      llvm_unary_op(op, dst, src, named_values, sg_ptr, builder);
+      llvm_unary_op (llvm_context, op, dst, src, named_values, sg_ptr, builder);
     } else if (op.opname() == op_printf) {
-      llvm_printf_op(this, op, named_values, sg_ptr, builder, getPrintfFunc(all_ops));
+        llvm_printf_op(llvm_context, this, op, named_values, sg_ptr, builder, getPrintfFunc(all_ops));
     } else if (op.opname() == op_assign) {
       Symbol& dst = *argsymbol(op.firstarg() + 0);
       Symbol& src = *argsymbol(op.firstarg() + 1);
       if (SkipSymbol(dst) ||
           SkipSymbol(src)) continue;
-      llvm_assign_op(op, dst, src, named_values, sg_ptr, builder);
+      llvm_assign_op (llvm_context, op, dst, src, named_values, sg_ptr, builder);
     } else if (op.opname() == op_if ||
                op.opname() == op_for ||
                op.opname() == op_while ||
@@ -1022,9 +1022,9 @@ ShaderInstance::buildLLVMVersion(llvm::LLVMContext& llvm_context,
       Symbol& cond = *argsymbol(op.firstarg() + 0);
       if (SkipSymbol(cond)) continue;
       if (op.opname() == op_if) {
-        llvm_if_op(op, cond, named_values, sg_ptr, builder, i, bb_map);
+        llvm_if_op (llvm_context, op, cond, named_values, sg_ptr, builder, i, bb_map);
       } else {
-        llvm_loop_op(op, cond, named_values, sg_ptr, builder, i, bb_map);
+          llvm_loop_op (llvm_context, op, cond, named_values, sg_ptr, builder, i, bb_map);
       }
     } else if (op.opname() == op_nop ||
                op.opname() == op_end) {

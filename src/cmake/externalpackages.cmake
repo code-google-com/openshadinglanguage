@@ -235,13 +235,8 @@ endif (USE_OPENGL)
 ###########################################################################
 # LLVM library setup
 
-# NOTE(boulos): If you checkout trunk, it's LLVM-2.8svn while the 2.7
-# release is probably LLVM-2.7. Mine is
-# /usr/local/lib/libLLVM-2.8svn.dylib, so drop in yours in the NAMES
-# field (it supports multiple values in priority order).
-
 find_library ( LLVM_LIBRARY
-               NAMES LLVM-2.8svn
+               NAMES LLVM-2.7
                PATHS /usr/local/lib )
 
 # end LLVM library setup
