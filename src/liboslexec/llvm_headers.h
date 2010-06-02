@@ -12,7 +12,6 @@
 #include <llvm/Linker.h>
 #include <llvm/LLVMContext.h>
 #include <llvm/Module.h>
-#include <llvm/ModuleProvider.h>
 #include <llvm/PassManager.h>
 #include <llvm/Support/ManagedStatic.h>
 #include <llvm/Support/MemoryBuffer.h>
