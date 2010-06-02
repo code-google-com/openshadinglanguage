@@ -556,7 +556,7 @@ llvm_float_to_int (llvm::LLVMContext &llvm_context, Value* fval,
 
 
 
-Value 
+Value *
 llvm_int_to_float (llvm::LLVMContext &llvm_context, Value* ival,
                    IRBuilder<>& builder)
 {
