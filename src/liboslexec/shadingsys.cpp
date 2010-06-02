@@ -194,7 +194,7 @@ ShadingSystemImpl::SetupLLVM() {
   llvm::InitializeNativeTarget();
 
   //printf("Loading LLVM Bitcode\n");
-  m_llvm_module = new llvm::Module("oslmodule", getLLVMContext());//LoadAllBitcode();
+  m_llvm_module = new llvm::Module("oslmodule", getLLVMContext());
 
   printf("Building an Execution Engine\n");
   std::string error_msg;
@@ -229,87 +229,7 @@ ShadingSystemImpl::~ShadingSystemImpl ()
     // we asked for a shared one.
 }
 
-llvm::Module*
-ShadingSystemImpl::LoadAllBitcode() {
-  using namespace llvm;
-#if 1
-  m_llvm_linker = new Linker("osl", "all_ops", getLLVMContext(), Linker::Verbose);
 
-  const char* bitcode_files[] = {
-    "background.cpp.bc",
-    "bsdf_ashikhmin_velvet.cpp.bc",
-    "bsdf_cloth.cpp.bc",
-    "bsdf_cloth_specular.cpp.bc",
-    "bsdf_diffuse.cpp.bc",
-    "bsdf_fakefur.cpp.bc",
-    "bsdf_hair.cpp.bc",
-    "bsdf_microfacet.cpp.bc",
-    "bsdf_phong.cpp.bc",
-    "bsdf_reflection.cpp.bc",
-    "bsdf_refraction.cpp.bc",
-    "bsdf_transparent.cpp.bc",
-    "bsdf_ward.cpp.bc",
-    "bsdf_westin.cpp.bc",
-    "bssrdf.cpp.bc",
-    "emissive.cpp.bc",
-    "oparray.cpp.bc",
-    "opassign.cpp.bc",
-    "opattribute.cpp.bc",
-    "opcolor.cpp.bc",
-    "opcompare.cpp.bc",
-    "opcontrol.cpp.bc",
-    "opderivs.cpp.bc",
-    "opinteger.cpp.bc",
-    "opmath.cpp.bc",
-    "opmathfunc.cpp.bc",
-    "opmatrix.cpp.bc",
-    "opmessage.cpp.bc",
-    "opmisc.cpp.bc",
-    "opnoise.cpp.bc",
-    "opspline.cpp.bc",
-    "opstring.cpp.bc",
-    "optexture.cpp.bc",
-    "opvector.cpp.bc",
-    "vol_subsurface.cpp.bc"};
-
-  int num_files = static_cast<int>(sizeof(bitcode_files)/sizeof(const char*));
-
-#if 0
-  std::vector<llvm::sys::Path> files;
-  for (int i = 0; i < num_files; i++) {
-    char buf[1024];
-    sprintf(buf, "/Users/boulos/projects/osl/dist/macosx/lib/%s", bitcode_files[i]);
-    files.push_back(llvm::sys::Path(buf));
-  }
-  m_llvm_linker->LinkInFiles(files);
-
-#else
-
-  for (int i = 0; i < num_files; i++) {
-    break;
-    char buf[1024];
-    sprintf(buf, "/Users/boulos/projects/osl/dist/macosx/lib/%s", bitcode_files[i]);
-    //printf("Linking in '%s'\n", buf);
-    MemoryBuffer* mb = MemoryBuffer::getFile(buf);
-    Module* op_module = ParseBitcodeFile(mb, getLLVMContext());
-    m_llvm_linker->LinkInModule(op_module);
-    delete mb;
-  }
-#endif
-
-  return m_llvm_linker->getModule();
-#else
-  llvm::Archive*
-  llvm::MemoryBuffer* all_ops_file = MemoryBuffer::getFile("/Users/boulos/projects/osl/dist/macosx/lib/osl_ops.bca");
-  std::string error_msg;
-  llvm::Module* lazy_module = llvm::getLazyBitcodeModule(all_ops_file, getLLVMContext(), &error_msg);
-  if (!lazy_module) {
-    printf("Failed to getLazyBitcodeModule: Error %s\n", error_msg.c_str());
-    exit(-1);
-  }
-  return lazy_module;
-#endif
-}
 
 void
 ShadingSystemImpl::SetupLLVMOptimizer() {

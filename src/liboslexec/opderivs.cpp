@@ -50,7 +50,7 @@ namespace pvt {
 
 
 template<class T, int whichd>
-static DECLPSEUDOOP (specialized_Dxy)
+static DECLOP (specialized_Dxy)
 {
     // Get references to the symbols this op accesses
     Symbol &Result (exec->sym (args[0]));
@@ -212,7 +212,7 @@ filter_width (const Vec3 &dx, const Vec3 &dy) {
 }
 
 template <typename T>
-DECLPSEUDOOP (filterwidth_guts)
+DECLOP (filterwidth_guts)
 {
     // Get references to the symbols this op accesses
     Symbol &Result (exec->sym (args[0]));

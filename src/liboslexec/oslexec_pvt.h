@@ -671,7 +671,6 @@ private:
   llvm::FunctionPassManager* m_opt_function;
   llvm::PassManager* m_opt_ipo;
 
-  llvm::Module* LoadAllBitcode();
   void SetupLLVMOptimizer();
 
     friend class ShadingContext;

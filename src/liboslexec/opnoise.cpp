@@ -1107,7 +1107,7 @@ struct PeriodicSNoise {
 
 
 template <typename FUNCTION>
-DECLPSEUDOOP (generic_noise_function_noderivs)
+DECLOP (generic_noise_function_noderivs)
 {
     ASSERT (nargs == 2 || nargs == 3);
     OpImpl impl = NULL;
@@ -1155,7 +1155,7 @@ DECLPSEUDOOP (generic_noise_function_noderivs)
 }
 
 template <typename FUNCTION>
-DECLPSEUDOOP (generic_noise_function)
+DECLOP (generic_noise_function)
 {
     ASSERT (nargs == 2 || nargs == 3);
     OpImpl impl = NULL;
@@ -1205,7 +1205,7 @@ DECLPSEUDOOP (generic_noise_function)
 
 
 template <typename FUNCTION>
-DECLPSEUDOOP (generic_pnoise_function)
+DECLOP (generic_pnoise_function)
 {
     ASSERT (nargs == 3 || nargs == 5);
     OpImpl impl = NULL;

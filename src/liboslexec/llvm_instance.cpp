@@ -975,8 +975,6 @@ AssignInitialConstant (llvm::LLVMContext &llvm_context, const Symbol& sym,
 
 
 
-#if 1
-
 llvm::Function*
 ShaderInstance::buildLLVMVersion (llvm::LLVMContext& llvm_context,
                                   llvm::Module* all_ops)
@@ -1175,82 +1173,7 @@ ShaderInstance::buildLLVMVersion (llvm::LLVMContext& llvm_context,
     return layer_func;
 }
 
-#else // Old code based on reading the ops
 
-llvm::Function *
-ShaderInstance::buildLLVMVersion (llvm::LLVMContext& llvm_context,
-                                  llvm::Module* all_ops)
-{
-    // grab the arg format from op_assign (all ops are the same)
-    Function* op_assign = all_ops->getFunction("OP_assign");
-    const FunctionType* opdecl = op_assign->getFunctionType();
-    // Now we can grab the ShadingExecution* type
-    const Type* exec_type = opdecl->getParamType(0);
-    const Type* args_type = Type::getInt32PtrTy(llvm_context);
-    // The layer function will just take a ShadingExecution* at runtime
-    char unique_layer_name[1024];
-    sprintf(unique_layer_name, "%s_%d", layername().c_str(), id());
-    llvm::Function* layer_func = cast<Function>(all_ops->getOrInsertFunction(unique_layer_name, Type::getVoidTy(llvm_context), exec_type, args_type, NULL));
-
-    Function::arg_iterator arg_iterator = layer_func->arg_begin();
-    Value* exec_ptr = arg_iterator++;
-    Value* args_base = arg_iterator++;
-
-    const OpcodeVec& instance_ops = ops();
-    //const std::vector<int>& instance_args = args();
-
-    BasicBlock* bb = BasicBlock::Create(llvm_context, "EntryBlock", layer_func);
-
-    //outs() << "layer (" << layername().c_str() << "). Making calls for " << instance_ops.size() << " ops.\n";
-
-    for (size_t i = 0; i < instance_ops.size(); i++) {
-        const Opcode& op = instance_ops[i];
-        Function* opfunc = NULL;
-        static ustring abs = ustring("abs");
-        if (op.opname() == abs) {
-            opfunc = all_ops->getFunction("OP_fabs");
-        } else {
-            char buf[1024];
-            sprintf(buf, "OP_%s", op.opname().c_str());
-            opfunc = all_ops->getFunction(buf);
-            if (!opfunc) {
-                printf("Didn't find op %s\n", buf);
-            }
-        }
-
-        // Need to pass in ShadingExecution*, nargs and a pointer to the
-        // args
-        ConstantInt* const_first_arg = ConstantInt::get(llvm_context, APInt(32, op.firstarg()));
-        ConstantInt* const_nargs = ConstantInt::get(llvm_context, APInt(32, op.nargs()));
-
-
-        GetElementPtrInst* op_args_ptr = GetElementPtrInst::Create(args_base, const_first_arg, "", bb);
-
-        Value* opfunc_args[] = {
-            exec_ptr,
-            const_nargs,
-            op_args_ptr
-        };
-
-        CallInst::Create (opfunc, opfunc_args, opfunc_args + 3, "", bb);
-    }
-
-    // Add a return void statement
-    ReturnInst::Create(llvm_context, bb);
-
-    //outs() << "layer_func (" << layername().c_str() << ") before opt  = " << *layer_func << "\n";
-
-    // Inline stuff first (our function is just gep + call)
-    shadingsys().IPOOptimizer()->run (*all_ops);
-    // Now optimize the result
-    shadingsys().FunctionOptimizer()->run (*layer_func);
-
-    //outs() << "layer_func (" << layername().c_str() << ") after opt  = " << *layer_func << "\n";
-
-    return layer_func;
-}
-
-#endif
 
 }; // namespace pvt
 }; // namespace osl

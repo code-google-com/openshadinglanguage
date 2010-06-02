@@ -51,9 +51,7 @@ namespace pvt {
 
 /// Macro that defines the full declaration of a shading opcode
 /// implementation
-#define DECLOP(name)   extern "C" void name (OPARGSDECL)
-
-#define DECLPSEUDOOP(name) void name (OPARGSDECL)
+#define DECLOP(name)   void name (OPARGSDECL)
 
 
 // Declarations of all our shader opcodes follow:
@@ -236,6 +234,8 @@ DECLOP (OP_xor);
 
 DECLOP (OP_missing);
 
+
+
 // Below are macros that define handy ways to loop over all active shade
 // points in a uniform way regardless of whether we are using runflags,
 // indices, or spans.
@@ -382,7 +382,7 @@ quaternary_op_guts (Symbol &Result, Symbol &A, Symbol &B, Symbol &C, Symbol &D,
 // to the result's derivatives
 template <typename RET, typename ATYPE, typename BTYPE,
           typename CTYPE, typename DTYPE, typename FUNCTION>
-DECLPSEUDOOP (quaternary_op_binary_derivs)
+DECLOP (quaternary_op_binary_derivs)
 {
     // Get references to the symbols this op accesses
     Symbol &Result (exec->sym (args[0]));
@@ -452,7 +452,7 @@ ternary_op_guts (Symbol &Result, Symbol &A, Symbol &B, Symbol &C,
 // Wrapper around ternary_op_guts that does has he call signature of an
 // ordinary shadeop.
 template <class RET, class ATYPE, class BTYPE, class CTYPE, class FUNCTION>
-DECLPSEUDOOP (ternary_op_noderivs)
+DECLOP (ternary_op_noderivs)
 {
     // Get references to the symbols this op accesses
     Symbol &Result (exec->sym (args[0]));
@@ -466,7 +466,7 @@ DECLPSEUDOOP (ternary_op_noderivs)
 // Wrapper around ternary_op_guts that does has he call signature of an
 // ordinary shadeop, with support for derivatives
 template <class RET, class ATYPE, class BTYPE, class CTYPE, class FUNCTION>
-DECLPSEUDOOP (ternary_op)
+DECLOP (ternary_op)
 {
     // Get references to the symbols this op accesses
     Symbol &Result (exec->sym (args[0]));
@@ -564,7 +564,7 @@ binary_op_guts (Symbol &Result, Symbol &A, Symbol &B,
 // Wrapper around binary_op_guts that has the call signature of an ordinary
 // shadeop.
 template <class RET, class ATYPE, class BTYPE, class FUNCTION>
-DECLPSEUDOOP (binary_op_noderivs)
+DECLOP (binary_op_noderivs)
 {
     // Get references to the symbols this op accesses
     Symbol &Result (exec->sym (args[0]));
@@ -581,7 +581,7 @@ DECLPSEUDOOP (binary_op_noderivs)
 // TODO: the presence of derivatives is static, but this shadeop checks
 //       Symbol::has_derivs() everytime
 template <class RET, class ATYPE, class BTYPE, class FUNCTION>
-DECLPSEUDOOP (binary_op)
+DECLOP (binary_op)
 {
     // Get references to the symbols this op accesses
     Symbol &Result (exec->sym (args[0]));
@@ -609,7 +609,7 @@ DECLPSEUDOOP (binary_op)
 // this is a binary function where only the "A" argument contributes to the
 // result's derivatives
 template <typename RET, typename ATYPE, typename BTYPE, typename FUNCTION>
-DECLPSEUDOOP (binary_op_unary_derivs)
+DECLOP (binary_op_unary_derivs)
 {
     // Get references to the symbols this op accesses
     Symbol &Result (exec->sym (args[0]));
@@ -723,7 +723,7 @@ unary_op_guts (Symbol &Result, Symbol &A,
 // version that knows the types of the arguments and the operation to
 // perform (given by a functor).
 template <class RET, class ATYPE, class FUNCTION>
-DECLPSEUDOOP (unary_op_noderivs)
+DECLOP (unary_op_noderivs)
 {
     // Get references to the symbols this op accesses
     Symbol &Result (exec->sym (args[0]));
@@ -734,7 +734,7 @@ DECLPSEUDOOP (unary_op_noderivs)
 
 
 template <class RET, class ATYPE, class FUNCTION>
-DECLPSEUDOOP (unary_op)
+DECLOP (unary_op)
 {
     // Get references to the symbols this op accesses
     Symbol &Result (exec->sym (args[0]));
@@ -746,7 +746,7 @@ DECLPSEUDOOP (unary_op)
 
 /// Implements the opcode for a specific ClosurePrimitive in the "standard way
 template <typename Primitive, int NumArgs> inline
-DECLPSEUDOOP (closure_op_guts)
+DECLOP (closure_op_guts)
 {
     ASSERT (nargs >= NumArgs); // TODO: switch to DASSERT at some point
 

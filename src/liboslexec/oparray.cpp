@@ -52,7 +52,7 @@ namespace pvt {
 // Heavy lifting of 'aref', this is a specialized version that knows
 // the types of the arguments.
 template <class T>
-static DECLPSEUDOOP (specialized_aref)
+static DECLOP (specialized_aref)
 {
     // Get references to the symbols this op accesses
     Symbol &Result (exec->sym (args[0]));
@@ -155,7 +155,7 @@ DECLOP (OP_aref)
 // Heavy lifting of 'aassign', this is a specialized version that knows
 // the types of the arguments.
 template <class T>
-static DECLPSEUDOOP (specialized_aassign)
+static DECLOP (specialized_aassign)
 {
     // Get references to the symbols this op accesses
     Symbol &Result (exec->sym (args[0]));

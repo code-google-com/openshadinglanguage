@@ -788,7 +788,7 @@ private:
 // one for the individual types (but that doesn't do any more polymorphic
 // resolution or sanity checks).
 template<class FUNCTION>
-DECLPSEUDOOP (generic_unary_function_shadeop_noderivs)
+DECLOP (generic_unary_function_shadeop_noderivs)
 {
     // 2 args, result and input.
     ASSERT (nargs == 2);
@@ -818,7 +818,7 @@ DECLPSEUDOOP (generic_unary_function_shadeop_noderivs)
 }
 
 template<class FUNCTION>
-DECLPSEUDOOP (generic_unary_function_shadeop)
+DECLOP (generic_unary_function_shadeop)
 {
     // 2 args, result and input.
     ASSERT (nargs == 2);
@@ -853,7 +853,7 @@ DECLPSEUDOOP (generic_unary_function_shadeop)
 // one for the individual types (but that doesn't do any more polymorphic
 // resolution or sanity checks).
 template<class FUNCTION>
-DECLPSEUDOOP (generic_binary_function_shadeop_noderivs)
+DECLOP (generic_binary_function_shadeop_noderivs)
 {
     // 3 args, result and two inputs.
     ASSERT (nargs == 3);
@@ -889,7 +889,7 @@ DECLPSEUDOOP (generic_binary_function_shadeop_noderivs)
 // one for the individual types (but that doesn't do any more polymorphic
 // resolution or sanity checks).
 template<class FUNCTION>
-DECLPSEUDOOP (generic_binary_function_shadeop)
+DECLOP (generic_binary_function_shadeop)
 {
     // 3 args, result and two inputs.
     ASSERT (nargs == 3);
@@ -925,7 +925,7 @@ DECLPSEUDOOP (generic_binary_function_shadeop)
 // one for the individual types (but that doesn't do any more polymorphic
 // resolution or sanity checks).
 template<class FUNCTION>
-DECLPSEUDOOP (generic_ternary_function_shadeop)
+DECLOP (generic_ternary_function_shadeop)
 {
     // 3 args, result and two inputs.
     ASSERT (nargs == 4);
@@ -962,7 +962,7 @@ DECLPSEUDOOP (generic_ternary_function_shadeop)
 // one for the individual types (but that doesn't do any more polymorphic
 // resolution or sanity checks).
 template<class FUNCTION>
-DECLPSEUDOOP (generic_ternary_function_shadeop_noderivs)
+DECLOP (generic_ternary_function_shadeop_noderivs)
 {
     // 3 args, result and two inputs.
     ASSERT (nargs == 4);
@@ -1560,7 +1560,7 @@ DECLOP (OP_fresnel)
 
 
 template <class TYPE, class FUNCTION>
-DECLPSEUDOOP(sincos_op_guts)
+DECLOP(sincos_op_guts)
 {
     Symbol &A = exec->sym(args[0]);
     Symbol &ResultSin = exec->sym(args[1]);

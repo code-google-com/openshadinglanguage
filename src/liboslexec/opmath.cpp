@@ -271,7 +271,7 @@ public:
 
 // Specialized binary operation driver for closures.  
 template <class ATYPE, class BTYPE, class FUNCTION>
-DECLPSEUDOOP (closure_binary_op)
+DECLOP (closure_binary_op)
 {
     // Get references to the symbols this op accesses
     Symbol &Result (exec->sym (args[0]));
@@ -296,7 +296,7 @@ DECLPSEUDOOP (closure_binary_op)
 
 // Specialized unary operation driver for closures.  
 template <class ATYPE, class FUNCTION>
-DECLPSEUDOOP (closure_unary_op)
+DECLOP (closure_unary_op)
 {
     // Get references to the symbols this op accesses
     Symbol &Result (exec->sym (args[0]));
