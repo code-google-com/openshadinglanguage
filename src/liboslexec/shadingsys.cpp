@@ -133,11 +133,11 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
       m_commonspace_synonym("world"),
       m_in_group (false),
       m_global_heap_total (0),
-      m_llvm_linker(0),
-      m_llvm_module(0),
-      m_llvm_exec(0),
-      m_opt_function(0),
-      m_opt_ipo(0)
+      m_llvm_linker (NULL),
+      m_llvm_module (NULL),
+      m_llvm_exec (NULL),
+      m_llvm_opt_function (NULL),
+      m_llvm_opt_ipo (NULL)
 {
     m_stat_shaders_loaded = 0;
     m_stat_shaders_requested = 0;
@@ -156,7 +156,7 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
     m_stat_syms_with_derivs = 0;
     m_stat_optimization_time = 0;
 
-    //init_global_heap_offsets ();
+    init_global_heap_offsets ();
 
     // If client didn't supply an error handler, just use the default
     // one that echoes to the terminal.

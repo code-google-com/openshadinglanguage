@@ -42,6 +42,7 @@ using namespace OSL::pvt;
 int
 main (int argc, const char *argv[])
 {
+#if 0  // not needed
     // Create a new shading system.
     ShadingSystem* shadingsys = ShadingSystem::create (NULL, NULL, NULL);
     printf("Created a shadingsys (%p)\n", shadingsys);
@@ -57,5 +58,6 @@ main (int argc, const char *argv[])
     ShadingAttribStateRef shaderstate = shadingsys->state ();
     ctx->bind(1, *shaderstate, shaderglobals);
     ShadingSystem::destroy (shadingsys);
+#endif
     return EXIT_SUCCESS;
 }

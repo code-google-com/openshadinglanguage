@@ -555,12 +555,8 @@ public:
     float *alloc_float_constants (size_t n) { return m_float_pool.alloc (n); }
     ustring *alloc_string_constants (size_t n) { return m_string_pool.alloc (n); }
 
-
-  void SetupLLVM();
-  llvm::LLVMContext& getLLVMContext() { return *m_llvm_context; }
-  llvm::ExecutionEngine* ExecutionEngine() { return m_llvm_exec; }
-  llvm::FunctionPassManager* FunctionOptimizer() { return m_opt_function; }
-  llvm::PassManager* IPOOptimizer() { return m_opt_ipo; }
+    llvm::LLVMContext& getLLVMContext () { return *m_llvm_context; }
+    llvm::ExecutionEngine* ExecutionEngine () { return m_llvm_exec; }
 
 private:
     void printstats () const;
@@ -596,6 +592,12 @@ private:
         }
         return p;
     }
+
+    void SetupLLVMOptimizer();
+    void SetupLLVM ();
+    llvm::FunctionPassManager* FunctionOptimizer () { return m_llvm_opt_function; }
+    llvm::PassManager* IPOOptimizer () { return m_llvm_opt_ipo; }
+
 
     RendererServices *m_renderer;         ///< Renderer services
     TextureSystem *m_texturesys;          ///< Texture system
@@ -664,14 +666,12 @@ private:
 #endif
 
     // LLVM stuff
-  llvm::LLVMContext* m_llvm_context;
-  llvm::Linker* m_llvm_linker;
-  llvm::Module* m_llvm_module;
-  llvm::ExecutionEngine* m_llvm_exec;
-  llvm::FunctionPassManager* m_opt_function;
-  llvm::PassManager* m_opt_ipo;
-
-  void SetupLLVMOptimizer();
+    llvm::LLVMContext *m_llvm_context;
+    llvm::Linker *m_llvm_linker;
+    llvm::Module *m_llvm_module;
+    llvm::ExecutionEngine *m_llvm_exec;
+    llvm::FunctionPassManager *m_llvm_opt_function;
+    llvm::PassManager *m_llvm_opt_ipo;
 
     friend class ShadingContext;
     friend class ShaderInstance;

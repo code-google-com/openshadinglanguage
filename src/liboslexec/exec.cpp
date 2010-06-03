@@ -536,61 +536,60 @@ ShadingExecution::bind_connection (const Connection &con)
 void
 ShadingExecution::run (Runflag *runflags, int *indices, int nindices, int beginop, int endop)
 {
-  bool run_llvm = false;//true;
-  if (run_llvm && beginop < 0) {
-    m_shadingsys = &m_context->shadingsys ();
-    m_debug = shadingsys()->debug();
+    bool run_llvm = false;//true;
+    if (run_llvm && beginop < 0) {
+        m_shadingsys = &m_context->shadingsys ();
+        m_debug = shadingsys()->debug();
 
-    typedef void (*RunLayerFunc)(SingleShaderGlobal*);
-    ShaderGroup& sgroup (context()->attribs()->shadergroup (shaderuse()));
-    ShaderInstance* shader = sgroup[layer()];
-    printf("About to run the LLVM Version of layer '%s' (pointer = %p)!\n", shader->layername().c_str(), shader);
-    printf("shading sys = %p\n", shadingsys());
-    llvm::ExecutionEngine* ee = shadingsys()->ExecutionEngine();
-    printf("JIT = %p\n", ee);
-    RunLayerFunc run_func = reinterpret_cast<RunLayerFunc>(ee->getPointerToFunction(shader->LLVMVersion()));
+        typedef void (*RunLayerFunc)(SingleShaderGlobal*);
+        ShaderGroup& sgroup (context()->attribs()->shadergroup (shaderuse()));
+        ShaderInstance* shader = sgroup[layer()];
+        printf("About to run the LLVM Version of layer '%s' (pointer = %p)!\n", shader->layername().c_str(), shader);
+        printf("shading sys = %p\n", shadingsys());
+        llvm::ExecutionEngine* ee = shadingsys()->ExecutionEngine();
+        printf("JIT = %p\n", ee);
+        RunLayerFunc run_func = reinterpret_cast<RunLayerFunc>(ee->getPointerToFunction(shader->LLVMVersion()));
 
-    SingleShaderGlobal my_sg;
-    // Ignore runflags for now
-    ShaderGlobals& sg = *(context()->globals());
-    m_npoints = m_context->npoints ();
-    for (int i = 0; i < m_npoints; i++) {
-      my_sg.P = sg.P[i];
-      my_sg.dPdx = sg.dPdx[i];
-      my_sg.dPdy = sg.dPdy[i];
-      my_sg.I = sg.I[i];
-      my_sg.dIdx = sg.dIdx[i];
-      my_sg.dIdy = sg.dIdy[i];
-      my_sg.N = sg.N[i];
-      my_sg.Ng = sg.Ng[i];
-      my_sg.u = sg.u[i];
-      my_sg.v = sg.v[i];
-      my_sg.dudx = sg.dudx[i];
-      my_sg.dudy = sg.dudy[i];
-      my_sg.dvdx = sg.dvdx[i];
-      my_sg.dvdy = sg.dvdy[i];
-      my_sg.dPdu = sg.dPdu[i];
-      my_sg.dPdv = sg.dPdv[i];
-      my_sg.time = sg.time[i];
-      my_sg.dtime = sg.dtime[i];
-      my_sg.dPdtime = sg.dPdtime[i];
-      my_sg.Ps = sg.Ps[i];
-      my_sg.dPsdx = sg.dPsdx[i];
-      my_sg.dPsdy = sg.dPsdy[i];
-      my_sg.renderstate = sg.renderstate[i];
-      my_sg.object2common = sg.object2common[i];
-      my_sg.shader2common = sg.shader2common[i];
-      my_sg.Ci = sg.Ci[i];
-      my_sg.surfacearea = sg.surfacearea[i];
-      my_sg.iscameraray = sg.iscameraray;
-      my_sg.isshadowray = sg.isshadowray;
-      my_sg.flipHandedness = sg.flipHandedness;
+        SingleShaderGlobal my_sg;
+        // Ignore runflags for now
+        ShaderGlobals& sg = *(context()->globals());
+        m_npoints = m_context->npoints ();
+        for (int i = 0; i < m_npoints; i++) {
+            my_sg.P = sg.P[i];
+            my_sg.dPdx = sg.dPdx[i];
+            my_sg.dPdy = sg.dPdy[i];
+            my_sg.I = sg.I[i];
+            my_sg.dIdx = sg.dIdx[i];
+            my_sg.dIdy = sg.dIdy[i];
+            my_sg.N = sg.N[i];
+            my_sg.Ng = sg.Ng[i];
+            my_sg.u = sg.u[i];
+            my_sg.v = sg.v[i];
+            my_sg.dudx = sg.dudx[i];
+            my_sg.dudy = sg.dudy[i];
+            my_sg.dvdx = sg.dvdx[i];
+            my_sg.dvdy = sg.dvdy[i];
+            my_sg.dPdu = sg.dPdu[i];
+            my_sg.dPdv = sg.dPdv[i];
+            my_sg.time = sg.time[i];
+            my_sg.dtime = sg.dtime[i];
+            my_sg.dPdtime = sg.dPdtime[i];
+            my_sg.Ps = sg.Ps[i];
+            my_sg.dPsdx = sg.dPsdx[i];
+            my_sg.dPsdy = sg.dPsdy[i];
+            my_sg.renderstate = sg.renderstate[i];
+            my_sg.object2common = sg.object2common[i];
+            my_sg.shader2common = sg.shader2common[i];
+            my_sg.Ci = sg.Ci[i];
+            my_sg.surfacearea = sg.surfacearea[i];
+            my_sg.iscameraray = sg.iscameraray;
+            my_sg.isshadowray = sg.isshadowray;
+            my_sg.flipHandedness = sg.flipHandedness;
 
-      run_func(&my_sg);
+            run_func(&my_sg);
+        }
+        return;
     }
-
-    return;
-  }
 
     if (m_debug)
         m_shadingsys->info ("Running ShadeExec %p, shader %s",
@@ -646,6 +645,7 @@ ShadingExecution::run (int beginop, int endop)
     bool debugnan = m_shadingsys->debug_nan ();
     OpcodeVec &code (m_instance->ops());
 
+#if 0
     if (0 && beginop == 0 && endop == (int)code.size()) {
       typedef void (*RunOps)(ShadingExecution*, const int*);
       RunOps run_fcn = reinterpret_cast<RunOps>(m_shadingsys->ExecutionEngine()->getPointerToFunction(m_instance->LLVMVersion()));
@@ -654,6 +654,7 @@ ShadingExecution::run (int beginop, int endop)
       m_context->m_instructions_run += code.size();
       return;
     }
+#endif
     int instructions_run = 0;
     for (m_ip = beginop; m_ip < endop && m_runstate.beginpoint < m_runstate.endpoint;  ++m_ip) {
         ++instructions_run;

@@ -1224,37 +1224,37 @@ ShadingSystemImpl::SetupLLVMOptimizer ()
     //m_opt_ipo->add(llvm::createFunctionInliningPass(2000));
 
     printf("Making FunctionPassManager\n");
-    m_opt_function = new llvm::FunctionPassManager(m_llvm_module);
+    m_llvm_opt_function = new llvm::FunctionPassManager(m_llvm_module);
     printf("Adding TargetInfo\n");
-    m_opt_function->add(new llvm::TargetData(*(m_llvm_exec->getTargetData())));
+    m_llvm_opt_function->add (new llvm::TargetData(*(m_llvm_exec->getTargetData())));
     // Now change things to registers
     printf("Adding mem2reg\n");
-    m_opt_function->add(llvm::createPromoteMemoryToRegisterPass());
+    m_llvm_opt_function->add (llvm::createPromoteMemoryToRegisterPass());
     // Combine instructions where possible
     printf("Adding instcomb\n");
-    m_opt_function->add(llvm::createInstructionCombiningPass());
+    m_llvm_opt_function->add (llvm::createInstructionCombiningPass());
     // resassociate exprssions (a = x + (3 + y) -> a = x + y + 3)
     printf("Adding reassoc\n");
-    m_opt_function->add(llvm::createReassociatePass());
+    m_llvm_opt_function->add (llvm::createReassociatePass());
     // eliminate common sub-expressions
     printf("Adding gvn\n");
-    m_opt_function->add(llvm::createGVNPass());
+    m_llvm_opt_function->add (llvm::createGVNPass());
     // Simplify the call graph if possible
     printf("Adding simpcfg\n");
-    m_opt_function->add(llvm::createCFGSimplificationPass());
+    m_llvm_opt_function->add (llvm::createCFGSimplificationPass());
 
     printf("Adding DCE\n");
-    m_opt_function->add(llvm::createAggressiveDCEPass());
+    m_llvm_opt_function->add (llvm::createAggressiveDCEPass());
     // Try to make stuff into registers one last time.
     printf("Adding mem2reg (again)\n");
-    m_opt_function->add(llvm::createPromoteMemoryToRegisterPass());
+    m_llvm_opt_function->add (llvm::createPromoteMemoryToRegisterPass());
 
     // Always add verifier?
     printf("Adding verifier\n");
-    m_opt_function->add(llvm::createVerifierPass());
+    m_llvm_opt_function->add (llvm::createVerifierPass());
 
     printf("Performing init\n");
-    m_opt_function->doInitialization();
+    m_llvm_opt_function->doInitialization();
 }
 
 
