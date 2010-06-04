@@ -544,10 +544,8 @@ ShadingExecution::run (Runflag *runflags, int *indices, int nindices, int begino
         typedef void (*RunLayerFunc)(SingleShaderGlobal*);
         ShaderGroup& sgroup (context()->attribs()->shadergroup (shaderuse()));
         ShaderInstance* shader = sgroup[layer()];
-        printf("About to run the LLVM Version of layer '%s' (pointer = %p)!\n", shader->layername().c_str(), shader);
-        printf("shading sys = %p\n", shadingsys());
+        //printf("About to run the LLVM Version of layer '%s' (pointer = %p)!\n", shader->layername().c_str(), shader);
         llvm::ExecutionEngine* ee = shadingsys()->ExecutionEngine();
-        printf("JIT = %p\n", ee);
         RunLayerFunc run_func = reinterpret_cast<RunLayerFunc>(ee->getPointerToFunction(shader->LLVMVersion()));
 
         SingleShaderGlobal my_sg;
@@ -645,29 +643,11 @@ ShadingExecution::run (int beginop, int endop)
     bool debugnan = m_shadingsys->debug_nan ();
     OpcodeVec &code (m_instance->ops());
 
-#if 0
-    if (0 && beginop == 0 && endop == (int)code.size()) {
-      typedef void (*RunOps)(ShadingExecution*, const int*);
-      RunOps run_fcn = reinterpret_cast<RunOps>(m_shadingsys->ExecutionEngine()->getPointerToFunction(m_instance->LLVMVersion()));
-      run_fcn(this, args);
-      //printf("actually ran some stuff\n");
-      m_context->m_instructions_run += code.size();
-      return;
-    }
-#endif
     int instructions_run = 0;
     for (m_ip = beginop; m_ip < endop && m_runstate.beginpoint < m_runstate.endpoint;  ++m_ip) {
         ++instructions_run;
         DASSERT (m_ip >= 0 && m_ip < (int)instance()->ops().size());
         Opcode &op (code[m_ip]);
-#if 0
-        if (m_runstate.beginpoint >= m_runstate.endpoint) {
-          printf("on op %d (%s), beginpoint = %d, endpoint = %d\n", m_ip, op.opname().c_str(), m_runstate.beginpoint, m_runstate.endpoint);
-        } else {
-          printf("ran op %d\n", m_ip);
-        }
-#endif
-
 #if 0
         // Debugging tool -- sample the run flags
         static atomic_ll count;

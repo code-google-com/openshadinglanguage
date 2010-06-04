@@ -196,31 +196,7 @@ llvm_osl_printf (const char* format_str, ...)
 {
     va_list args;
     va_start(args, format_str);
-
-#if 0
-    // NOTE(boulos): Don't need this anymore since we handle it when
-    // "upconverting" the format string to handle triples and such.
-    std::string my_format;
-    const char* fmt_ptr = format_str;
-    while (*fmt_ptr != '\0') {
-        if (*fmt_ptr == '\\') {
-            // It's a slash, escape it for the printf
-            ++fmt_ptr;  // skip the backslash
-            switch (*fmt_ptr) {
-            case 'n' : my_format += '\n';     break;
-            case 'r' : my_format += '\r';     break;
-            case 't' : my_format += '\t';     break;
-            default:   my_format += *fmt_ptr;  break;  // Catches '\\' also!
-            }
-        } else {
-            my_format += *fmt_ptr;
-        }
-        fmt_ptr++;
-    }
-    vprintf(my_format.c_str(), args);
-#else
     vprintf(format_str, args);
-#endif
     va_end(args);
 }
 
@@ -259,7 +235,7 @@ getOrAllocateLLVMSymbol (LLVMContext& llvm_context, const Symbol& sym,
         int total_size = num_components * (has_derivs ? 3 : 1);
         IRBuilder<> tmp_builder(&f->getEntryBlock(),
                                 f->getEntryBlock().begin());
-        printf("Making a type with %d %ss for symbol '%s'\n", total_size, (is_float) ? "float" : "int", mangled_name.c_str());
+        //printf("Making a type with %d %ss for symbol '%s'\n", total_size, (is_float) ? "float" : "int", mangled_name.c_str());
         AllocaInst* allocation = 0;
         if (total_size == 1) {
             ConstantInt* type_len = ConstantInt::get(llvm_context, APInt(32, total_size));
@@ -271,7 +247,7 @@ getOrAllocateLLVMSymbol (LLVMContext& llvm_context, const Symbol& sym,
             allocation = tmp_builder.CreateAlloca(struct_type, num_structs, mangled_name.c_str());
         }
 
-        outs() << "Allocation = " << *allocation << "\n";
+        //outs() << "Allocation = " << *allocation << "\n";
         named_values[mangled_name] = allocation;
         return allocation;
     }
@@ -285,7 +261,7 @@ LLVMLoadShaderGlobal (const Symbol& sym, int component, int deriv,
                       Value* sg_ptr, IRBuilder<>& builder)
 {
     int sg_index = ShaderGlobalNameToIndex(sym.name(), deriv);
-    printf("Global '%s' has sg_index = %d\n", sym.name().c_str(), sg_index);
+    //printf("Global '%s' has sg_index = %d\n", sym.name().c_str(), sg_index);
     if (sg_index == -1) {
         printf("Warning unhandled global '%s'", sym.name().c_str());
         return NULL;
@@ -370,7 +346,7 @@ loadLLVMValue (LLVMContext &llvm_context, const Symbol& sym, int component,
     int num_elements = sym.typespec().simpletype().aggregate;
     int real_component = std::min(num_elements, component);
     int index = real_component + deriv * num_elements;
-    printf("Looking up index %d (comp_%d -> realcomp_%d +  %d * %d) for symbol '%s'\n", index, component, real_component, deriv, num_elements, sym.mangled().c_str());
+    //printf("Looking up index %d (comp_%d -> realcomp_%d +  %d * %d) for symbol '%s'\n", index, component, real_component, deriv, num_elements, sym.mangled().c_str());
     Value* aggregate = getLLVMSymbolBase(sym, named_values, sg_ptr);
     if (!aggregate) return 0;
     if (num_elements == 1 && !has_derivs) {
@@ -379,7 +355,7 @@ loadLLVMValue (LLVMContext &llvm_context, const Symbol& sym, int component,
     } else {
 #if 1
         Value* ptr = builder.CreateConstGEP2_32(aggregate, 0, index);
-        outs() << "aggregate = " << *aggregate << " and GEP = " << *ptr << "\n";
+        //outs() << "aggregate = " << *aggregate << " and GEP = " << *ptr << "\n";
         return builder.CreateLoad(ptr);
 #else
         return builder.CreateExtractValue(aggregate, index);
@@ -411,7 +387,7 @@ storeLLVMValue (Value* new_val, const Symbol& sym, int component, int deriv,
         int real_component = std::min(num_elements, component);
         int index = real_component + deriv * num_elements;
 #if 1
-        printf("Storing value into index %d (comp_%d -> realcomp_%d +  %d * %d) for symbol '%s'\n", index, component, real_component, deriv, num_elements, sym.mangled().c_str());
+        //printf("Storing value into index %d (comp_%d -> realcomp_%d +  %d * %d) for symbol '%s'\n", index, component, real_component, deriv, num_elements, sym.mangled().c_str());
         Value* ptr = builder.CreateConstGEP2_32(aggregate, 0, index);
         builder.CreateStore(new_val, ptr);
 #else
@@ -419,8 +395,6 @@ storeLLVMValue (Value* new_val, const Symbol& sym, int component, int deriv,
 #endif
     }
 }
-
-
 
 Function *
 getPrintfFunc (Module* module)
@@ -483,26 +457,12 @@ llvm_printf_op (llvm::LLVMContext &context, ShaderInstance* inst,
                 return;
             }
             TypeDesc simpletype (sym.typespec().simpletype());
-#if 0
-            char code = *format;
-            if (sym.typespec().is_closure() && code != 's') {
-                ourformat[ourformat.length()-1] = 's';
-            } else if (simpletype.basetype == TypeDesc::FLOAT &&
-                       code != 'f' && code != 'g') {
-                ourformat[ourformat.length()-1] = 'g';
-            } else if (simpletype.basetype == TypeDesc::INT && code != 'd') {
-                ourformat[ourformat.length()-1] = 'd';
-            } else if (simpletype.basetype == TypeDesc::STRING && code != 's') {
-                ourformat[ourformat.length()-1] = 's';
-            }
-            s += exec->format_symbol (ourformat, sym, whichpoint);
-#else
             int num_components = simpletype.numelements() * simpletype.aggregate;
             // NOTE(boulos): Only for debug mode do the derivatives get printed...
             for (int i = 0; i < num_components; i++) {
                 if (i != 0) s += " ";
                 s += ourformat;
-                
+
                 Value* loaded = loadLLVMValue (context, sym, i, 0, named_values, sg_ptr, builder);
                 // NOTE(boulos): Annoyingly varargs makes it so that things need
                 // to be upconverted from float to double (who knew?)
@@ -512,7 +472,6 @@ llvm_printf_op (llvm::LLVMContext &context, ShaderInstance* inst,
                     call_args.push_back(loaded);
                 }
             }
-#endif
             ++arg;
         } else if (*format == '\\') {
             // Escape sequence
@@ -655,7 +614,8 @@ llvm_binary_op (llvm::LLVMContext &llvm_context, const Opcode& op,
 void
 llvm_unary_op (llvm::LLVMContext &llvm_context, const Opcode& op,
                const Symbol& dst, const Symbol& src,
-               AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder)
+               AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder,
+               Module* all_ops)
 {
     bool dst_derivs = dst.has_derivs();
     int num_components = dst.typespec().simpletype().aggregate;
@@ -673,10 +633,12 @@ llvm_unary_op (llvm::LLVMContext &llvm_context, const Opcode& op,
         // Perform the op
         Value* result = 0;
         static ustring op_neg("neg");
-#if 0
         static ustring op_abs("abs");
         static ustring op_fabs("fabs");
         static ustring op_sqrt("sqrt");
+        static ustring op_sin("sin");
+        static ustring op_cos("cos");
+#if 0
         static ustring op_ceil("ceil");
 
         static ustring op_log2("log2");
@@ -695,6 +657,29 @@ llvm_unary_op (llvm::LLVMContext &llvm_context, const Opcode& op,
 
         if (opname == op_neg) {
             result = (src_float) ? builder.CreateFNeg(src_val) : builder.CreateNeg(src_val);
+        } else if (opname == op_abs ||
+                   opname == op_fabs) {
+            if (src_float) {
+                // Call fabsf
+                const Type* float_ty = Type::getFloatTy(llvm_context);
+                Value* fabsf_func = all_ops->getOrInsertFunction("fabsf", float_ty, float_ty, NULL);
+                result = builder.CreateCall(fabsf_func, src_val);
+            } else {
+                // neg_version = -x
+                // result = (x < 0) ? neg_version : x
+                Value* negated = builder.CreateNeg(src_val);
+                Value* cond = builder.CreateICmpSLT(src_val, ConstantInt::get(Type::getInt32Ty(llvm_context), 0));
+                result = builder.CreateSelect(cond, negated, src_val);
+            }
+        } else if (opname == op_sqrt && src_float) {
+            const Type* float_ty = Type::getFloatTy(llvm_context);
+            result = builder.CreateCall(Intrinsic::getDeclaration(all_ops, Intrinsic::sqrt, &float_ty, 1), src_val);
+        } else if (opname == op_sin && src_float) {
+            const Type* float_ty = Type::getFloatTy(llvm_context);
+            result = builder.CreateCall(Intrinsic::getDeclaration(all_ops, Intrinsic::sin, &float_ty, 1), src_val);
+        } else if (opname == op_cos && src_float) {
+            const Type* float_ty = Type::getFloatTy(llvm_context);
+            result = builder.CreateCall(Intrinsic::getDeclaration(all_ops, Intrinsic::cos, &float_ty, 1), src_val);
         } else {
             // Don't know how to handle this.
             printf("WARNING: Don't know how to handle op '%s', eliding the store\n", opname.c_str());
@@ -720,8 +705,6 @@ llvm_unary_op (llvm::LLVMContext &llvm_context, const Opcode& op,
     }
 }
 
-
-
 // Simple assignment
 void
 llvm_assign_op (llvm::LLVMContext &llvm_context, const Opcode& op,
@@ -735,7 +718,7 @@ llvm_assign_op (llvm::LLVMContext &llvm_context, const Opcode& op,
     bool dst_float = dst.typespec().is_floatbased();
     bool src_float = src.typespec().is_floatbased();
 
-    printf("assigning '%s' (mangled = '%s') to '%s' (mangled = '%s')\n", src.name().c_str(), src.mangled().c_str(), dst.name().c_str(), dst.mangled().c_str());
+    //printf("assigning '%s' (mangled = '%s') to '%s' (mangled = '%s')\n", src.name().c_str(), src.mangled().c_str(), dst.name().c_str(), dst.mangled().c_str());
 
     for (int i = 0; i < num_components; i++) {
         // Get src component i
@@ -760,6 +743,85 @@ llvm_assign_op (llvm::LLVMContext &llvm_context, const Opcode& op,
 }
 
 
+// Component reference
+void
+llvm_compref_op (llvm::LLVMContext &llvm_context, const Opcode& op,
+                 const Symbol& dst, const Symbol& src, const Symbol& index,
+                 AllocationMap& named_values, Value* sg_ptr,
+                 IRBuilder<>& builder)
+{
+    bool dst_derivs = dst.has_derivs();
+    int num_components = src.typespec().simpletype().aggregate;
+
+    bool dst_float = dst.typespec().is_floatbased();
+    bool src_float = src.typespec().is_floatbased();
+
+    // Get src component index
+    if (!index.is_constant()) {
+        printf("punting on non-constant index for now. annoying\n");
+        return;
+    }
+    int const_index = *((int*)index.data());
+    if (const_index < 0 || const_index >= num_components) {
+        printf("Warning: index out of range for object (idx = %d, num_comp = %d)\n", const_index, num_components);
+        return;
+    }
+
+    Value* src_val = loadLLVMValue(llvm_context, src, const_index, 0, named_values, sg_ptr, builder);
+    if (!src_val) return;
+
+    // Perform the assignment
+    if (dst_float && !src_float) {
+        // need int -> float
+        src_val = builder.CreateSIToFP(src_val, Type::getFloatTy(llvm_context));
+    } else if (!dst_float && src_float) {
+        // float -> int
+        src_val = builder.CreateFPToSI(src_val, Type::getInt32Ty(llvm_context));
+    }
+
+    // compref is: scalar = vector[int]
+    storeLLVMValue(src_val, dst, 0, 0, named_values, sg_ptr, builder);
+
+    if (dst_derivs) {
+        // mul results in <a * b, a * b_dx + b * a_dx, a * b_dy + b * a_dy>
+        printf("punting on derivatives for now\n");
+    }
+}
+
+// Simple aggregate constructor (no conversion)
+void
+llvm_construct_aggregate (llvm::LLVMContext &llvm_context, const Opcode& op,
+                          const Symbol& dst, const Symbol** src_syms,
+                          AllocationMap& named_values, Value* sg_ptr,
+                          IRBuilder<>& builder) {
+    bool dst_derivs = dst.has_derivs();
+    int num_components = dst.typespec().simpletype().aggregate;
+
+    bool dst_float = dst.typespec().is_floatbased();
+
+    for (int i = 0; i < num_components; i++) {
+        const Symbol& src = *src_syms[i];
+        bool src_float = src.typespec().is_floatbased();
+        // Get src component 0 (it should be a scalar)
+        Value* src_val = loadLLVMValue(llvm_context, src, 0, 0, named_values, sg_ptr, builder);
+        if (!src_val) return;
+
+        // Perform the assignment
+        if (dst_float && !src_float) {
+            // need int -> float
+            src_val = builder.CreateSIToFP(src_val, Type::getFloatTy(llvm_context));
+        } else if (!dst_float && src_float) {
+            // float -> int
+            src_val = builder.CreateFPToSI(src_val, Type::getInt32Ty(llvm_context));
+        }
+        storeLLVMValue(src_val, dst, i, 0, named_values, sg_ptr, builder);
+
+        if (dst_derivs) {
+            // mul results in <a * b, a * b_dx + b * a_dx, a * b_dy + b * a_dy>
+            printf("punting on derivatives for now\n");
+        }
+    }
+}
 
 // Comparison ops (though other binary -> scalar ops like dot might end
 // up being similar)
@@ -864,6 +926,203 @@ llvm_compare_op (llvm::LLVMContext &llvm_context, const Opcode& op,
     }
 }
 
+// unary reduction ops (length, luminance, determinant (much more complicated...))
+void
+llvm_unary_reduction (llvm::LLVMContext &llvm_context, const Opcode& op,
+                      const Symbol& dst, const Symbol& src,
+                      AllocationMap& named_values, Value* sg_ptr,
+                      IRBuilder<>& builder, Module* all_ops)
+{
+    bool dst_derivs = dst.has_derivs();
+    // Loop over the source
+    int num_components = src.typespec().simpletype().aggregate;
+
+    Value* final_result = 0;
+
+    static ustring op_length("length");
+    static ustring op_luminance("luminance");
+
+    ustring opname = op.opname();
+
+    for (int i = 0; i < num_components; i++) {
+        // Get src1/2 component i
+        Value* src_load = loadLLVMValue(llvm_context, src, i, 0, named_values, sg_ptr, builder);
+
+        if (!src_load) return;
+
+        Value* src_val = src_load;
+
+        // Perform the op
+        Value* result = 0;
+
+        if (opname == op_length) {
+            result = builder.CreateFMul(src_val, src_val);
+        } else if (opname == op_luminance) {
+            float coeff = 0.f;
+            switch (i) {
+            case 0: coeff = .2126f; break;
+            case 1: coeff = .7152f; break;
+            default: coeff = .0722f; break;
+            }
+            result = builder.CreateFMul(src_val, ConstantFP::get(llvm_context, APFloat(coeff)));
+        } else {
+            // Don't know how to handle this.
+            printf("WARNING: Don't know how to handle op '%s', eliding the store\n", opname.c_str());
+        }
+
+        if (result) {
+            if (final_result) {
+                final_result = builder.CreateFAdd(final_result, result);
+            } else {
+                final_result = result;
+            }
+        }
+    }
+
+    if (final_result) {
+        // Compute sqrtf(result) if it's length instead of luminance
+        if (opname == op_length) {
+            // Take sqrt
+            const Type* float_ty = Type::getFloatTy(llvm_context);
+            final_result = builder.CreateCall(Intrinsic::getDeclaration(all_ops, Intrinsic::sqrt, &float_ty, 1), final_result);
+        }
+
+        storeLLVMValue(final_result, dst, 0, 0, named_values, sg_ptr, builder);
+        if (dst_derivs) {
+            printf("punting on derivatives for now\n");
+        }
+    }
+}
+
+// dot. This is could easily be a more general f(Agg, Agg) -> Scalar,
+// but we don't seem to have any others.
+void
+llvm_dot_op (llvm::LLVMContext &llvm_context, const Opcode& op,
+             const Symbol& dst, const Symbol& src1, const Symbol& src2,
+             AllocationMap& named_values, Value* sg_ptr,
+             IRBuilder<>& builder, Module* all_ops)
+{
+    bool dst_derivs = dst.has_derivs();
+    // Loop over the sources
+    int num_components = src1.typespec().simpletype().aggregate;
+
+    Value* final_result = 0;
+
+    for (int i = 0; i < num_components; i++) {
+        // Get src1/src2 component i
+        Value* src1_load = loadLLVMValue(llvm_context, src1, i, 0, named_values, sg_ptr, builder);
+        Value* src2_load = loadLLVMValue(llvm_context, src2, i, 0, named_values, sg_ptr, builder);
+
+        if (!src1_load || !src2_load) return;
+
+        Value* result = builder.CreateFMul(src1_load, src2_load);
+
+        if (final_result) {
+            final_result = builder.CreateFAdd(final_result, result);
+        } else {
+            final_result = result;
+        }
+    }
+
+    storeLLVMValue(final_result, dst, 0, 0, named_values, sg_ptr, builder);
+    if (dst_derivs) {
+        printf("punting on derivatives for now\n");
+    }
+}
+
+// cross.
+void
+llvm_cross_op (llvm::LLVMContext &llvm_context, const Opcode& op,
+               const Symbol& dst, const Symbol& src1, const Symbol& src2,
+               AllocationMap& named_values, Value* sg_ptr,
+               IRBuilder<>& builder, Module* all_ops)
+{
+    bool dst_derivs = dst.has_derivs();
+    int num_components = dst.typespec().simpletype().aggregate;
+
+    for (int i = 0; i < num_components; i++) {
+        // Get src1/src2 component for output i
+        int src1_idx0[3] = { 1, 2, 0 };
+        int src1_idx1[3] = { 2, 0, 1 };
+
+        int src2_idx0[3] = { 2, 0, 1 };
+        int src2_idx1[3] = { 1, 2, 0 };
+
+        Value* src1_load0 = loadLLVMValue(llvm_context, src1, src1_idx0[i], 0, named_values, sg_ptr, builder);
+        Value* src1_load1 = loadLLVMValue(llvm_context, src1, src1_idx1[i], 0, named_values, sg_ptr, builder);
+
+        Value* src2_load0 = loadLLVMValue(llvm_context, src2, src2_idx0[i], 0, named_values, sg_ptr, builder);
+        Value* src2_load1 = loadLLVMValue(llvm_context, src2, src2_idx1[i], 0, named_values, sg_ptr, builder);
+
+        if (!src1_load0 || !src1_load1 || !src2_load0 || !src2_load1) return;
+
+        Value* prod0 = builder.CreateFMul(src1_load0, src2_load0);
+        Value* prod1 = builder.CreateFMul(src1_load1, src2_load1);
+        Value* result = builder.CreateFSub(prod0, prod1);
+
+        storeLLVMValue(result, dst, i, 0, named_values, sg_ptr, builder);
+        if (dst_derivs) {
+            printf("punting on derivatives for now\n");
+        }
+    }
+}
+
+// normalize. This is sort of like unary with a side product (length)
+// that we need to then apply to the whole vector. TODO(boulos): Try
+// to reuse the length code maybe?
+void
+llvm_normalize_op (llvm::LLVMContext &llvm_context, const Opcode& op,
+                   const Symbol& dst, const Symbol& src,
+                   AllocationMap& named_values, Value* sg_ptr,
+                   IRBuilder<>& builder, Module* all_ops)
+{
+    bool dst_derivs = dst.has_derivs();
+    int num_components = dst.typespec().simpletype().aggregate;
+
+    Value* length_squared = 0;
+
+    for (int i = 0; i < num_components; i++) {
+        // Get src component i
+        Value* src_load = loadLLVMValue(llvm_context, src, i, 0, named_values, sg_ptr, builder);
+
+        if (!src_load) return;
+
+        Value* src_val = src_load;
+
+        // Perform the op
+        Value* result = builder.CreateFMul(src_val, src_val);
+
+        if (length_squared) {
+            length_squared = builder.CreateFAdd(length_squared, result);
+        } else {
+            length_squared = result;
+        }
+    }
+
+    // Take sqrt
+    const Type* float_ty = Type::getFloatTy(llvm_context);
+    Value* length = builder.CreateCall(Intrinsic::getDeclaration(all_ops, Intrinsic::sqrt, &float_ty, 1), length_squared);
+    // Compute 1/length
+    Value* inv_length = builder.CreateFDiv(ConstantFP::get(llvm_context, APFloat(1.f)), length);
+
+    for (int i = 0; i < num_components; i++) {
+        // Get src component i
+        Value* src_load = loadLLVMValue(llvm_context, src, i, 0, named_values, sg_ptr, builder);
+
+        if (!src_load) return;
+
+        Value* src_val = src_load;
+
+        // Perform the op (src_val * inv_length is the order in opvector.cpp)
+        Value* result = builder.CreateFMul(src_val, inv_length);
+
+        storeLLVMValue(result, dst, i, 0, named_values, sg_ptr, builder);
+        if (dst_derivs) {
+            printf("punting on derivatives for now\n");
+        }
+    }
+}
+
 
 
 void
@@ -955,21 +1214,23 @@ AssignInitialConstant (llvm::LLVMContext &llvm_context, const Symbol& sym,
 {
     int num_components = sym.typespec().simpletype().aggregate;
     bool is_float = sym.typespec().is_floatbased();
-    if (sym.is_constant() && num_components == 1 && !sym.has_derivs()) {
-        // Fill in the constant val
-        // Setup initial store
-        Value* init_val = 0;
-        printf("Assigning initial value for symbol '%s' = ", sym.mangled().c_str());
-        if (is_float) {
-            float fval = *((float*)sym.data());
-            init_val = ConstantFP::get(llvm_context, APFloat(fval));
-            printf("%f\n", fval);
-        } else {
-            int ival = *((int*)sym.data());
-            init_val = ConstantInt::get(llvm_context, APInt(32, ival));
-            printf("%d\n", ival);
+    if (sym.is_constant() && !sym.has_derivs()) {
+        for (int i = 0; i < num_components; i++) {
+            // Fill in the constant val
+            // Setup initial store
+            Value* init_val = 0;
+            //printf("Assigning initial value for symbol '%s' = ", sym.mangled().c_str());
+            if (is_float) {
+                float fval = ((float*)sym.data())[i];
+                init_val = ConstantFP::get(llvm_context, APFloat(fval));
+                //printf("%f\n", fval);
+            } else {
+                int ival = ((int*)sym.data())[i];
+                init_val = ConstantInt::get(llvm_context, APInt(32, ival));
+                //printf("%d\n", ival);
+            }
+            storeLLVMValue(init_val, sym, i, 0, named_values, sg_ptr, builder);
         }
-        storeLLVMValue(init_val, sym, 0, 0, named_values, sg_ptr, builder);
     }
 }
 
@@ -1085,7 +1346,25 @@ ShaderInstance::buildLLVMVersion (llvm::LLVMContext& llvm_context,
         static ustring op_neq("neq");
         static ustring op_printf("printf");
         static ustring op_assign("assign");
+        static ustring op_compref("compref");
+
+        static ustring op_vector("vector");
+        static ustring op_color("color");
+
         static ustring op_neg("neg");
+        static ustring op_abs("abs");
+        static ustring op_fabs("fabs");
+        static ustring op_sqrt("sqrt");
+        static ustring op_sin("sin");
+        static ustring op_cos("cos");
+
+        static ustring op_length("length");
+        static ustring op_luminance("luminance");
+        static ustring op_normalize("normalize");
+
+        static ustring op_dot("dot");
+        static ustring op_cross("cross");
+
         static ustring op_nop("nop");
         static ustring op_end("end");
         static ustring op_if("if");
@@ -1100,7 +1379,7 @@ ShaderInstance::buildLLVMVersion (llvm::LLVMContext& llvm_context,
             op.opname() == op_mul ||
             op.opname() == op_div ||
             op.opname() == op_mod) {
-            Symbol& dst = *argsymbol(op.firstarg() + 0);
+            Symbol& dst  = *argsymbol(op.firstarg() + 0);
             Symbol& src1 = *argsymbol(op.firstarg() + 1);
             Symbol& src2 = *argsymbol(op.firstarg() + 2);
 
@@ -1110,6 +1389,26 @@ ShaderInstance::buildLLVMVersion (llvm::LLVMContext& llvm_context,
                 continue;
 
             llvm_binary_op (llvm_context, op, dst, src1, src2, named_values, sg_ptr, builder);
+        } else if (op.opname() == op_dot) {
+            Symbol& dst  = *argsymbol(op.firstarg() + 0);
+            Symbol& src1 = *argsymbol(op.firstarg() + 1);
+            Symbol& src2 = *argsymbol(op.firstarg() + 2);
+            if (SkipSymbol(dst) ||
+                SkipSymbol(src1) ||
+                SkipSymbol(src2))
+                continue;
+
+            llvm_dot_op (llvm_context, op, dst, src1, src2, named_values, sg_ptr, builder, all_ops);
+        } else if (op.opname() == op_cross) {
+            Symbol& dst  = *argsymbol(op.firstarg() + 0);
+            Symbol& src1 = *argsymbol(op.firstarg() + 1);
+            Symbol& src2 = *argsymbol(op.firstarg() + 2);
+            if (SkipSymbol(dst) ||
+                SkipSymbol(src1) ||
+                SkipSymbol(src2))
+                continue;
+
+            llvm_cross_op (llvm_context, op, dst, src1, src2, named_values, sg_ptr, builder, all_ops);
         } else if (op.opname() == op_lt ||
                    op.opname() == op_le ||
                    op.opname() == op_eq ||
@@ -1126,14 +1425,36 @@ ShaderInstance::buildLLVMVersion (llvm::LLVMContext& llvm_context,
                 continue;
 
             llvm_compare_op (llvm_context, op, dst, src1, src2, named_values, sg_ptr, builder);
-        } else if (op.opname() == op_neg) {
+        } else if (op.opname() == op_neg ||
+                   op.opname() == op_abs ||
+                   op.opname() == op_fabs ||
+                   op.opname() == op_sqrt ||
+                   op.opname() == op_sin ||
+                   op.opname() == op_cos) {
             Symbol& dst = *argsymbol(op.firstarg() + 0);
             Symbol& src = *argsymbol(op.firstarg() + 1);
             if (SkipSymbol(dst) ||
                 SkipSymbol(src))
                 continue;
 
-            llvm_unary_op (llvm_context, op, dst, src, named_values, sg_ptr, builder);
+            llvm_unary_op (llvm_context, op, dst, src, named_values, sg_ptr, builder, all_ops);
+        } else if (op.opname() == op_normalize) {
+            Symbol& dst = *argsymbol(op.firstarg() + 0);
+            Symbol& src = *argsymbol(op.firstarg() + 1);
+            if (SkipSymbol(dst) ||
+                SkipSymbol(src))
+                continue;
+
+            llvm_normalize_op (llvm_context, op, dst, src, named_values, sg_ptr, builder, all_ops);
+        } else if (op.opname() == op_length ||
+                   op.opname() == op_luminance) {
+            Symbol& dst = *argsymbol(op.firstarg() + 0);
+            Symbol& src = *argsymbol(op.firstarg() + 1);
+            if (SkipSymbol(dst) ||
+                SkipSymbol(src))
+                continue;
+
+            llvm_unary_reduction (llvm_context, op, dst, src, named_values, sg_ptr, builder, all_ops);
         } else if (op.opname() == op_printf) {
             llvm_printf_op(llvm_context, this, op, named_values, sg_ptr, builder, getPrintfFunc(all_ops));
         } else if (op.opname() == op_assign) {
@@ -1142,6 +1463,29 @@ ShaderInstance::buildLLVMVersion (llvm::LLVMContext& llvm_context,
             if (SkipSymbol(dst) ||
                 SkipSymbol(src)) continue;
             llvm_assign_op (llvm_context, op, dst, src, named_values, sg_ptr, builder);
+        } else if (op.opname() == op_compref) {
+            Symbol& dst = *argsymbol(op.firstarg() + 0);
+            Symbol& src = *argsymbol(op.firstarg() + 1);
+            Symbol& idx = *argsymbol(op.firstarg() + 2);
+            if (SkipSymbol(dst) ||
+                SkipSymbol(src) ||
+                SkipSymbol(idx)) continue;
+            llvm_compref_op (llvm_context, op, dst, src, idx, named_values, sg_ptr, builder);
+        } else if (op.opname() == op_vector ||
+                   op.opname() == op_color) {
+            Symbol& dst = *argsymbol(op.firstarg() + 0);
+            Symbol& arg1 = *argsymbol(op.firstarg() + 1);
+            if (arg1.typespec().is_string()) {
+                // Using a string to say what space we want, punt for
+                // now.
+                continue;
+            }
+            // Otherwise, the args are just data.
+            const Symbol* src_vars[16];
+            for (int i = 1; i < op.nargs(); i++) {
+                src_vars[i-1] = argsymbol(op.firstarg() + i);
+            }
+            llvm_construct_aggregate (llvm_context, op, dst, src_vars, named_values, sg_ptr, builder);
         } else if (op.opname() == op_if ||
                    op.opname() == op_for ||
                    op.opname() == op_while ||
