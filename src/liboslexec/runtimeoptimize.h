@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 using namespace OSL;
 using namespace OSL::pvt;
 
+#include "llvm_headers.h"
 
 
 #ifdef OSL_NAMESPACE
@@ -50,8 +51,13 @@ class RuntimeOptimizer {
 public:
     RuntimeOptimizer (ShadingSystemImpl &shadingsys, ShaderGroup &group)
         : m_shadingsys(shadingsys), m_group(group),
-          m_inst(NULL), m_next_newconst(0)
+          m_inst(NULL), m_next_newconst(0),
+          m_llvm_context(NULL), m_llvm_module(NULL), m_builder(NULL)
     {
+    }
+
+    ~RuntimeOptimizer () {
+        delete m_builder;
     }
 
     void optimize_group ();
@@ -218,9 +224,40 @@ public:
 
     /// Helper: return the ptr to the symbol that is the argnum-th
     /// argument to the given op.
-    Symbol *opargsym (Opcode &op, int argnum) {
+    Symbol *opargsym (const Opcode &op, int argnum) {
         return inst()->argsymbol (op.firstarg()+argnum);
     }
+
+    llvm::Function* build_llvm_version ();
+
+    typedef std::map<std::string, llvm::AllocaInst*> AllocationMap;
+    typedef std::map<int, llvm::BasicBlock*> BasicBlockMap;
+
+    void llvm_assign_initial_constant (const Symbol& sym, llvm::Value* sg_ptr);
+    llvm::LLVMContext &llvm_context () const { return *m_llvm_context; }
+    llvm::Module *llvm_module () const { return m_llvm_module; }
+    AllocationMap &named_values () { return m_named_values; }
+    BasicBlockMap &bb_map () { return m_bb_map; }
+    llvm::IRBuilder<> &builder () { return *m_builder; }
+
+    llvm::Value *loadLLVMValue (const Symbol& sym, int component,
+                                int deriv, llvm::Value* sg_ptr);
+    void storeLLVMValue (llvm::Value* new_val, const Symbol& sym,
+                         int component, int deriv, llvm::Value* sg_ptr);
+    llvm::Value *LLVMLoadShaderGlobal (const Symbol& sym, int component,
+                                       int deriv, llvm::Value* sg_ptr);
+    llvm::Value *LLVMStoreShaderGlobal (llvm::Value* val, const Symbol& sym,
+                                int component, int deriv, llvm::Value* sg_ptr);
+    llvm::Value *LoadParam (const Symbol& sym, int component, int deriv,
+                            llvm::Value* sg_ptr,
+                            float* fdata, int* idata, ustring* sdata);
+    llvm::Value *getOrAllocateLLVMSymbol (const Symbol& sym,
+                                      llvm::Value* sg_ptr, llvm::Function* f);
+    llvm::Value *getLLVMSymbolBase (const Symbol &sym, llvm::Value *sg_ptr);
+
+    llvm::Value *llvm_float_to_int (llvm::Value *fval);
+    llvm::Value *llvm_int_to_float (llvm::Value *ival);
+    const llvm::StructType *getShaderGlobalType ();
 
 private:
     ShadingSystemImpl &m_shadingsys;
@@ -237,6 +274,13 @@ private:
     std::vector<ustring> m_local_messages_sent; ///< Messages set in this inst
     std::vector<int> m_bblockids;       ///< Basic block IDs for each op
     std::vector<bool> m_in_conditional; ///< Whether each op is in a cond
+
+    // LLVM stuff
+    llvm::LLVMContext *m_llvm_context;
+    llvm::Module *m_llvm_module;
+    AllocationMap m_named_values;
+    BasicBlockMap m_bb_map;
+    llvm::IRBuilder<> *m_builder;
 
     // Persistant data shared between layers
     bool m_unknown_message_sent;      ///< Somebody did a non-const setmessage

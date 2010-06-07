@@ -371,10 +371,8 @@ public:
     void make_symbol_room (size_t moresyms=1);
 
 
-  // LLVM stuff
-  llvm::Function* LLVMVersion() { return llvm_version; }
-  llvm::Function* buildLLVMVersion(llvm::LLVMContext& llvm_context,
-                                   llvm::Module* llvm_module);
+    // LLVM stuff
+    llvm::Function* LLVMVersion() { return llvm_version; }
 
 private:
     bool heap_size_calculated () const { return m_heap_size_calculated; }
@@ -555,7 +553,7 @@ public:
     float *alloc_float_constants (size_t n) { return m_float_pool.alloc (n); }
     ustring *alloc_string_constants (size_t n) { return m_string_pool.alloc (n); }
 
-    llvm::LLVMContext& getLLVMContext () { return *m_llvm_context; }
+    llvm::LLVMContext *llvm_context () { return m_llvm_context; }
     llvm::ExecutionEngine* ExecutionEngine () { return m_llvm_exec; }
 
 private:
@@ -593,7 +591,7 @@ private:
         return p;
     }
 
-    void SetupLLVMOptimizer();
+    void SetupLLVMOptimizer ();
     void SetupLLVM ();
     llvm::FunctionPassManager* FunctionOptimizer () { return m_llvm_opt_function; }
     llvm::PassManager* IPOOptimizer () { return m_llvm_opt_ipo; }

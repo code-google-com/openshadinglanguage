@@ -75,6 +75,8 @@ RuntimeOptimizer::set_inst (int newlayer)
     m_all_consts.clear ();
     m_symbol_aliases.clear ();
     m_block_aliases.clear ();
+    m_llvm_context = m_shadingsys.llvm_context ();
+    m_llvm_module = m_shadingsys.m_llvm_module;
 }
 
 
@@ -2655,6 +2657,15 @@ RuntimeOptimizer::optimize_group ()
           100.0*double((long long)new_nsyms-(long long)old_nsyms)/double(old_nsyms),
           new_nops, old_nops,
           100.0*double((long long)new_nops-(long long)old_nops)/double(old_nops));
+
+    bool do_llvm = true;
+    if (do_llvm) {
+        m_shadingsys.SetupLLVM ();
+        for (int layer = 0;  layer < nlayers;  ++layer) {
+            set_inst (layer);
+            build_llvm_version ();
+        }
+    }
 }
 
 
@@ -2673,14 +2684,6 @@ ShadingSystemImpl::optimize_group (ShadingAttribState &attribstate,
 
     RuntimeOptimizer rop (*this, group);
     rop.optimize_group ();
-
-    bool do_llvm = true;
-    if (do_llvm) {
-      SetupLLVM();
-      for (int i = 0; i < group.nlayers(); i++) {
-        group[i]->llvm_version = group[i]->buildLLVMVersion(getLLVMContext(), m_llvm_module);
-      }
-    }
 
     attribstate.changed_shaders ();
     group.m_optimized = true;
