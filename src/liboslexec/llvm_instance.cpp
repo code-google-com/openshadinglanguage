@@ -624,6 +624,27 @@ RuntimeOptimizer::llvm_int_to_float (llvm::Value* ival)
 
 
 
+/// Generate IR code for simple a/b, but considering OSL's semantics
+/// that x/0 = 0, not inf.
+static llvm::Value *
+llvm_make_div (RuntimeOptimizer &rop, TypeDesc type,
+               llvm::Value *a, llvm::Value *b)
+{
+    if (type.basetype == TypeDesc::FLOAT) {
+        llvm::Value *div = rop.builder().CreateFDiv (a, b);
+        llvm::Value *zero = rop.llvm_constant (0.0f);
+        llvm::Value *iszero = rop.builder().CreateFCmpOEQ (b, zero);
+        return rop.builder().CreateSelect (iszero, zero, div);
+    } else {
+        llvm::Value *div = rop.builder().CreateSDiv (a, b);
+        llvm::Value *zero = rop.llvm_constant (0);
+        llvm::Value *iszero = rop.builder().CreateICmpEQ (b, zero);
+        return rop.builder().CreateSelect (iszero, zero, div);
+    }
+}
+
+
+
 // Simple (pointwise) binary ops (+-*/)
 LLVMGEN (llvm_gen_binary_op)
 {
@@ -680,7 +701,8 @@ LLVMGEN (llvm_gen_binary_op)
         } else if (opname == op_mul) {
             result = (need_float_op) ? rop.builder().CreateFMul(src1_val, src2_val) : rop.builder().CreateMul(src1_val, src2_val);
         } else if (opname == op_div) {
-            result = (need_float_op) ? rop.builder().CreateFDiv(src1_val, src2_val) : rop.builder().CreateSDiv(src1_val, src2_val);
+            result = llvm_make_div (rop, need_float_op ? TypeDesc::FLOAT : TypeDesc::INT,
+                                    src1_val, src2_val);
         } else if (opname == op_mod) {
             result = (need_float_op) ? rop.builder().CreateFRem(src1_val, src2_val) : rop.builder().CreateSRem(src1_val, src2_val);
         } else {
@@ -1533,12 +1555,12 @@ RuntimeOptimizer::build_llvm_version ()
 
     builder().CreateRetVoid();
 
-    llvm::outs() << "layer_func (" << unique_layer_name << ") after llvm  = " << *m_layer_func << "\n";
+    llvm::errs() << "layer_func (" << unique_layer_name << ") after llvm  = " << *m_layer_func << "\n";
 
     // Now optimize the result
     shadingsys().FunctionOptimizer()->run(*m_layer_func);
 
-    llvm::outs() << "layer_func (" << unique_layer_name << ") after opt  = " << *m_layer_func << "\n";
+    llvm::errs() << "layer_func (" << unique_layer_name << ") after opt  = " << *m_layer_func << "\n";
 
     inst()->llvm_version = m_layer_func;
 
