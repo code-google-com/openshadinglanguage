@@ -262,6 +262,22 @@ RuntimeOptimizer::llvm_constant (int i)
 
 
 
+const llvm::Type *
+RuntimeOptimizer::llvm_type (const TypeSpec &typespec)
+{
+    ASSERT (! typespec.is_closure() && ! typespec.is_structure());
+    ASSERT (! typespec.is_array());
+    TypeDesc t = typespec.simpletype();
+    if (t == TypeDesc::FLOAT)
+        return llvm_type_float();
+    if (t == TypeDesc::INT)
+        return llvm_type_int();
+    ASSERT (0 && "not handling this type yet");
+    return NULL;
+}
+
+
+
 void
 RuntimeOptimizer::llvm_zero_derivs (Symbol &sym)
 {
@@ -285,6 +301,11 @@ llvm_osl_printf (const char* format_str, ...)
     // the preferred output mechanisms.
     va_list args;
     va_start (args, format_str);
+#if 0
+    // Make super sure we know we are excuting LLVM-generated code!
+    std::string newfmt = std::string("llvm: ") + format_str;
+    format_str = newfmt.c_str();
+#endif
     vprintf (format_str, args);
     va_end (args);
 }
@@ -419,7 +440,7 @@ RuntimeOptimizer::loadLLVMValue (const Symbol& sym, int component,
         // we're asking for them, return 0.  Integers don't have derivs
         // so we don't need to worry about that case.
         ASSERT (sym.typespec().is_floatbased() && cast != TypeDesc::TypeInt);
-        return llvm::ConstantFP::get (llvm_context(), llvm::APFloat(0.f));
+        return llvm_constant (0.0f);
     }
 
     // Handle Globals (and eventually Params) separately since they have
@@ -445,9 +466,9 @@ RuntimeOptimizer::loadLLVMValue (const Symbol& sym, int component,
 
     // Handle int<->float type casting
     if (sym.typespec().is_floatbased() && cast == TypeDesc::TypeInt)
-        result = llvm_int_to_float (result);
-    else if (sym.typespec().is_int() && cast == TypeDesc::TypeFloat)
         result = llvm_float_to_int (result);
+    else if (sym.typespec().is_int() && cast == TypeDesc::TypeFloat)
+        result = llvm_int_to_float (result);
 
     return result;
 }
@@ -799,9 +820,11 @@ LLVMGEN (llvm_gen_assign)
 
     // The following code handles f=f, f=i, v=v, v=f, v=i, m=m.
     // Remember that loadLLVMValue will automatically convert scalar->triple.
-    int num_components = Result.typespec().simpletype().aggregate;
+    TypeDesc rt = Result.typespec().simpletype();
+    TypeDesc basetype = TypeDesc::BASETYPE(rt.basetype);
+    int num_components = rt.aggregate;
     for (int i = 0; i < num_components; ++i) {
-        llvm::Value* src_val = rop.loadLLVMValue (Src, i, 0);
+        llvm::Value* src_val = rop.loadLLVMValue (Src, i, 0, basetype);
         if (!src_val)
             return false;
         rop.storeLLVMValue (src_val, Result, i, 0);

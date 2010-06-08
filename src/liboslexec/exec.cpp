@@ -536,14 +536,15 @@ ShadingExecution::bind_connection (const Connection &con)
 void
 ShadingExecution::run (Runflag *runflags, int *indices, int nindices, int beginop, int endop)
 {
-    bool run_llvm = false;//true;
-    if (run_llvm && beginop < 0) {
+    bool run_llvm = true;
+    if (run_llvm && beginop < 0 &&
+        context()->attribs()->shadergroup (shaderuse())[layer()]) {
         m_shadingsys = &m_context->shadingsys ();
         m_debug = shadingsys()->debug();
+        ShaderGroup &sgroup (context()->attribs()->shadergroup (shaderuse()));
+        ShaderInstance *shader = sgroup[layer()];
 
         typedef void (*RunLayerFunc)(SingleShaderGlobal*);
-        ShaderGroup& sgroup (context()->attribs()->shadergroup (shaderuse()));
-        ShaderInstance* shader = sgroup[layer()];
         //printf("About to run the LLVM Version of layer '%s' (pointer = %p)!\n", shader->layername().c_str(), shader);
         llvm::ExecutionEngine* ee = shadingsys()->ExecutionEngine();
         RunLayerFunc run_func = reinterpret_cast<RunLayerFunc>(ee->getPointerToFunction(shader->LLVMVersion()));

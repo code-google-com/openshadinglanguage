@@ -283,6 +283,10 @@ public:
     ///
     void llvm_zero_derivs (Symbol &sym);
 
+    /// Generate the appropriate llvm type definition for an OSL TypeSpec.
+    ///
+    const llvm::Type *llvm_type (const TypeSpec &typespec);
+
     const llvm::Type *llvm_type_float() { return m_llvm_type_float; }
     const llvm::Type *llvm_type_int() { return m_llvm_type_int; }
     const llvm::Type *llvm_type_bool() { return m_llvm_type_bool; }
