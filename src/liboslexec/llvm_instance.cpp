@@ -1227,9 +1227,9 @@ llvm_gen_if (RuntimeOptimizer &rop, int opnum)
     // Convert the int to a bool via truncation
     llvm::Value* cond_bool = rop.builder().CreateTrunc (cond_load, Type::getInt1Ty(rop.llvm_context()));
     // Branch on the condition, to our blocks
-    BasicBlock* then_block = bb_map[opnum+1];
-    BasicBlock* else_block = bb_map[op.jump(0)];
-    BasicBlock* after_block = bb_map[op.jump(1)];
+    llvm::BasicBlock* then_block = bb_map[opnum+1];
+    llvm::BasicBlock* else_block = bb_map[op.jump(0)];
+    llvm::BasicBlock* after_block = bb_map[op.jump(1)];
     rop.builder().CreateCondBr (cond_bool, then_block, else_block);
     // Put an unconditional branch at the end of the Then and Else blocks
     if (then_block != after_block) {
@@ -1254,11 +1254,11 @@ llvm_gen_loop_op (RuntimeOptimizer &rop, int opnum)
     RuntimeOptimizer::BasicBlockMap& bb_map (rop.bb_map());
 
     // Branch on the condition, to our blocks
-    BasicBlock* init_block = bb_map[opnum+1];
-    BasicBlock* cond_block = bb_map[op.jump(0)];
-    BasicBlock* body_block = bb_map[op.jump(1)];
-    BasicBlock* step_block = bb_map[op.jump(2)];
-    BasicBlock* after_block = bb_map[op.jump(3)];
+    llvm::BasicBlock* init_block = bb_map[opnum+1];
+    llvm::BasicBlock* cond_block = bb_map[op.jump(0)];
+    llvm::BasicBlock* body_block = bb_map[op.jump(1)];
+    llvm::BasicBlock* step_block = bb_map[op.jump(2)];
+    llvm::BasicBlock* after_block = bb_map[op.jump(3)];
 
     // Insert the unconditional jump to the LoopCond
     if (init_block != cond_block) {
@@ -1394,13 +1394,13 @@ RuntimeOptimizer::build_llvm_version ()
     const llvm::StructType* sg_type = getShaderGlobalType ();
     llvm::PointerType* sg_ptr_type = PointerType::get(sg_type, 0 /* Address space */);
     // Make a layer function: void layer_func(ShaderGlobal*)
-    llvm::Function* layer_func = cast<Function>(all_ops->getOrInsertFunction(unique_layer_name, Type::getVoidTy(*m_llvm_context), sg_ptr_type, NULL));
+    m_layer_func = cast<Function>(all_ops->getOrInsertFunction(unique_layer_name, Type::getVoidTy(*m_llvm_context), sg_ptr_type, NULL));
     const OpcodeVec& instance_ops (inst()->ops());
-    Function::arg_iterator arg_it = layer_func->arg_begin();
+    Function::arg_iterator arg_it = m_layer_func->arg_begin();
     // Get shader globals pointer
     m_llvm_shaderglobals_ptr = arg_it++;
 
-    BasicBlock* entry_bb = BasicBlock::Create(*m_llvm_context, "EntryBlock", layer_func);
+    llvm::BasicBlock* entry_bb = llvm::BasicBlock::Create (llvm_context(), "EntryBlock", m_layer_func);
 
     delete m_builder;
     m_builder = new IRBuilder<> (entry_bb);
@@ -1413,67 +1413,32 @@ RuntimeOptimizer::build_llvm_version ()
         if (s.symtype() == SymTypeGlobal)
             continue;
         // Make space
-        getOrAllocateLLVMSymbol (s, layer_func);
+        getOrAllocateLLVMSymbol (s, m_layer_func);
         if (s.is_constant())
             llvm_assign_initial_constant (s);
     }
 
     // All the symbols are stack allocated now.
 
-    // Go learn about the BasicBlock's we'll need to make. NOTE(boulos):
-    // The definition of BasicBlock here follows the LLVM version which
-    // differs from that in runtimeoptimize.cpp. In particular, the
-    // instructions in a Then block are part of a new
-    // BasicBlock. QUESTION(boulos): This actually should be true for
-    // runtimeoptimize as well. If you happened to define a variable in
-    // a condition (which is bad mojo, but legal) the aliasing stuff is
-    // probably wrong...
-    std::vector<bool> bb_start (instance_ops.size(), false);
+    // Mark all the basic blocks, including allocating llvm::BasicBlock
+    // records for each.
+    find_basic_blocks (true);
 
     for (size_t opnum = 0; opnum < instance_ops.size(); ++opnum) {
         const Opcode& op = instance_ops[opnum];
-        if (op.opname() == op_if) {
-            // For a true BasicBlock, since we are going to conditionally
-            // jump into the ThenBlock, we need to label the next
-            // instruction as starting ThenBlock.
-            bb_start[opnum+1] = true;
-            // The ElseBlock also can be jumped to
-            bb_start[op.jump(0)] = true;
-            // And ExitBlock
-            bb_start[op.jump(1)] = true;
-        } else if (op.opname() == op_for ||
-                   op.opname() == op_while ||
-                   op.opname() == op_dowhile) {
-            bb_start[opnum+1] = true; // LoopInit
-            bb_start[op.jump(0)] = true; // LoopCond
-            bb_start[op.jump(1)] = true; // LoopBody
-            bb_start[op.jump(2)] = true; // LoopStep
-            bb_start[op.jump(3)] = true; // AfterLoop
-        }
-    }
-
-    // Create a map from ops with bb_start=true to their BasicBlock*
-    m_bb_map.clear ();
-    for (size_t opnum = 0; opnum < instance_ops.size(); ++opnum) {
-        if (bb_start[opnum])
-            m_bb_map[opnum] = BasicBlock::Create (*m_llvm_context, "", layer_func);
-    }
-
-    for (size_t opnum = 0; opnum < instance_ops.size(); ++opnum) {
-        const Opcode& op = instance_ops[opnum];
-        if (bb_start[opnum]) {
+        if (m_bb_map[opnum]) {   // it's NULL when not the start of a BB
             // If we start a new BasicBlock, point the builder there.
-            BasicBlock* next_bb = m_bb_map[opnum];
+            llvm::BasicBlock* next_bb = m_bb_map[opnum];
             if (next_bb != entry_bb) {
                 // If we're not the entry block (which is where all the
                 // AllocaInstructions go), then start insertion at the
                 // beginning of the block. This way we can insert instructions
                 // before the possible jmp inserted at the end by an upstream
                 // conditional (e.g. if/for/while/do)
-                builder().SetInsertPoint(next_bb, next_bb->begin());
+                builder().SetInsertPoint (next_bb, next_bb->begin());
             } else {
                 // Otherwise, use the end (IRBuilder default)
-                builder().SetInsertPoint(next_bb);
+                builder().SetInsertPoint (next_bb);
             }
         }
 
@@ -1494,19 +1459,19 @@ RuntimeOptimizer::build_llvm_version ()
 
     builder().CreateRetVoid();
 
-    outs() << "layer_func (" << unique_layer_name << ") after llvm  = " << *layer_func << "\n";
+    outs() << "layer_func (" << unique_layer_name << ") after llvm  = " << *m_layer_func << "\n";
 
     // Now optimize the result
-    shadingsys().FunctionOptimizer()->run(*layer_func);
+    shadingsys().FunctionOptimizer()->run(*m_layer_func);
 
-    outs() << "layer_func (" << unique_layer_name << ") after opt  = " << *layer_func << "\n";
+    outs() << "layer_func (" << unique_layer_name << ") after opt  = " << *m_layer_func << "\n";
 
-    inst()->llvm_version = layer_func;
+    inst()->llvm_version = m_layer_func;
 
     delete m_builder;
     m_builder = NULL;
 
-    return layer_func;
+    return m_layer_func;
 }
 
 

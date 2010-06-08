@@ -115,7 +115,7 @@ public:
 
     void find_conditionals ();
 
-    void find_basic_blocks ();
+    void find_basic_blocks (bool do_llvm = false);
 
     bool coerce_assigned_constant (Opcode &op);
 
@@ -231,7 +231,7 @@ public:
     llvm::Function* build_llvm_version ();
 
     typedef std::map<std::string, llvm::AllocaInst*> AllocationMap;
-    typedef std::map<int, llvm::BasicBlock*> BasicBlockMap;
+    typedef std::vector<llvm::BasicBlock*> BasicBlockMap;
 
     void llvm_assign_initial_constant (const Symbol& sym);
     llvm::LLVMContext &llvm_context () const { return *m_llvm_context; }
@@ -281,6 +281,7 @@ private:
     BasicBlockMap m_bb_map;
     llvm::IRBuilder<> *m_builder;
     llvm::Value *m_llvm_shaderglobals_ptr;
+    llvm::Function *m_layer_func;     ///< Current layer func we're building
 
     // Persistant data shared between layers
     bool m_unknown_message_sent;      ///< Somebody did a non-const setmessage

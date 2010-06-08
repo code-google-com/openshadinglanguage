@@ -1554,8 +1554,10 @@ RuntimeOptimizer::find_conditionals ()
 /// Identify basic blocks by assigning a basic block ID for each
 /// instruction.  Within any basic bock, there are no jumps in or out.
 /// Also note which instructions are inside conditional states.
+/// If do_llvm is true, also construct the m_bb_map that maps opcodes
+/// beginning BB's to llvm::BasicBlock records.
 void
-RuntimeOptimizer::find_basic_blocks ()
+RuntimeOptimizer::find_basic_blocks (bool do_llvm)
 {
     OpcodeVec &code (inst()->ops());
     SymbolVec &symbols (inst()->symbols());
@@ -1563,7 +1565,6 @@ RuntimeOptimizer::find_basic_blocks ()
     // Start by setting all basic block IDs to 0
     m_bblockids.clear ();
     m_bblockids.resize (code.size(), 0);
-    int bbid = 1;  // next basic block ID to use
 
     // First, keep track of all the spots where blocks begin
     std::vector<bool> block_begin (code.size(), false);
@@ -1576,23 +1577,35 @@ RuntimeOptimizer::find_basic_blocks ()
     }
 
     // Main code starts a basic block
+    if (! do_llvm)  // ...but if we do this for LLVM, it crashes.  FIXME!
     block_begin[inst()->m_maincodebegin] = true;
 
-    // Anyplace that's the target of a jump instruction starts a basic block
-    for (int i = 0;  i < (int)code.size();  ++i) {
+    for (size_t opnum = 0;  opnum < code.size();  ++opnum) {
+        // Anyplace that's the target of a jump instruction starts a basic block
         for (int j = 0;  j < (int)Opcode::max_jumps;  ++j) {
-            if (code[i].jump(j) >= 0)
-                block_begin[code[i].jump(j)] = true;
+            if (code[opnum].jump(j) >= 0)
+                block_begin[code[opnum].jump(j)] = true;
             else
                 break;
         }
+        // The first instruction in a conditional or loop (which is not
+        // itself a jump target) also begins a basic block.  If the op has
+        // any jump targets at all, it must be a conditional or loop.
+        if (code[opnum].jump(0) >= 0)
+            block_begin[opnum+1] = true;
     }
 
     // Now color the blocks with unique identifiers
-    for (int i = 0;  i < (int)code.size();  ++i) {
-        if (block_begin[i])
+    int bbid = 1;  // next basic block ID to use
+    m_bb_map.resize (code.size(), NULL);
+    for (size_t opnum = 0;  opnum < code.size();  ++opnum) {
+        if (block_begin[opnum]) {
             ++bbid;
-        m_bblockids[i] = bbid;
+            if (do_llvm)
+                m_bb_map[opnum] = llvm::BasicBlock::Create (llvm_context(), "",
+                                                            m_layer_func);
+        }
+        m_bblockids[opnum] = bbid;
     }
 }
 
