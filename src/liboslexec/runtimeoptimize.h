@@ -233,31 +233,30 @@ public:
     typedef std::map<std::string, llvm::AllocaInst*> AllocationMap;
     typedef std::map<int, llvm::BasicBlock*> BasicBlockMap;
 
-    void llvm_assign_initial_constant (const Symbol& sym, llvm::Value* sg_ptr);
+    void llvm_assign_initial_constant (const Symbol& sym);
     llvm::LLVMContext &llvm_context () const { return *m_llvm_context; }
     llvm::Module *llvm_module () const { return m_llvm_module; }
     AllocationMap &named_values () { return m_named_values; }
     BasicBlockMap &bb_map () { return m_bb_map; }
     llvm::IRBuilder<> &builder () { return *m_builder; }
 
-    llvm::Value *loadLLVMValue (const Symbol& sym, int component,
-                                int deriv, llvm::Value* sg_ptr);
+    llvm::Value *loadLLVMValue (const Symbol& sym, int component, int deriv);
     void storeLLVMValue (llvm::Value* new_val, const Symbol& sym,
-                         int component, int deriv, llvm::Value* sg_ptr);
+                         int component, int deriv);
     llvm::Value *LLVMLoadShaderGlobal (const Symbol& sym, int component,
-                                       int deriv, llvm::Value* sg_ptr);
+                                       int deriv);
     llvm::Value *LLVMStoreShaderGlobal (llvm::Value* val, const Symbol& sym,
-                                int component, int deriv, llvm::Value* sg_ptr);
+                                        int component, int deriv);
     llvm::Value *LoadParam (const Symbol& sym, int component, int deriv,
-                            llvm::Value* sg_ptr,
                             float* fdata, int* idata, ustring* sdata);
-    llvm::Value *getOrAllocateLLVMSymbol (const Symbol& sym,
-                                      llvm::Value* sg_ptr, llvm::Function* f);
-    llvm::Value *getLLVMSymbolBase (const Symbol &sym, llvm::Value *sg_ptr);
+    llvm::Value *getOrAllocateLLVMSymbol (const Symbol& sym, llvm::Function* f);
+    llvm::Value *getLLVMSymbolBase (const Symbol &sym);
 
     llvm::Value *llvm_float_to_int (llvm::Value *fval);
     llvm::Value *llvm_int_to_float (llvm::Value *ival);
     const llvm::StructType *getShaderGlobalType ();
+
+    llvm::Value *sg_ptr () const { return m_llvm_shaderglobals_ptr; }
 
 private:
     ShadingSystemImpl &m_shadingsys;
@@ -281,6 +280,7 @@ private:
     AllocationMap m_named_values;
     BasicBlockMap m_bb_map;
     llvm::IRBuilder<> *m_builder;
+    llvm::Value *m_llvm_shaderglobals_ptr;
 
     // Persistant data shared between layers
     bool m_unknown_message_sent;      ///< Somebody did a non-const setmessage

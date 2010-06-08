@@ -247,7 +247,7 @@ llvm_osl_printf (const char* format_str, ...)
 
 
 llvm::Value *
-RuntimeOptimizer::getLLVMSymbolBase (const Symbol &sym, llvm::Value *sg_ptr)
+RuntimeOptimizer::getLLVMSymbolBase (const Symbol &sym)
 {
     Symbol* dealiased = sym.dealias();
     std::string mangled_name = dealiased->mangled();
@@ -264,7 +264,7 @@ RuntimeOptimizer::getLLVMSymbolBase (const Symbol &sym, llvm::Value *sg_ptr)
 
 llvm::Value *
 RuntimeOptimizer::getOrAllocateLLVMSymbol (const Symbol& sym,
-                                       llvm::Value* sg_ptr, llvm::Function* f)
+                                           llvm::Function* f)
 {
     Symbol* dealiased = sym.dealias();
     std::string mangled_name = dealiased->mangled();
@@ -299,7 +299,7 @@ RuntimeOptimizer::getOrAllocateLLVMSymbol (const Symbol& sym,
 
 llvm::Value *
 RuntimeOptimizer::LLVMLoadShaderGlobal (const Symbol& sym, int component,
-                                        int deriv, llvm::Value* sg_ptr)
+                                        int deriv)
 {
     int sg_index = ShaderGlobalNameToIndex (sym.name(), deriv);
     //shadingsys().info ("Global '%s' has sg_index = %d\n", sym.name().c_str(), sg_index);
@@ -311,7 +311,7 @@ RuntimeOptimizer::LLVMLoadShaderGlobal (const Symbol& sym, int component,
     int num_elements = sym.typespec().simpletype().aggregate;
     int real_component = std::min (num_elements, component);
 
-    llvm::Value* field = builder().CreateConstGEP2_32 (sg_ptr, 0, sg_index);
+    llvm::Value* field = builder().CreateConstGEP2_32 (sg_ptr(), 0, sg_index);
     if (num_elements == 1) {
         return builder().CreateLoad (field);
     } else {
@@ -323,8 +323,8 @@ RuntimeOptimizer::LLVMLoadShaderGlobal (const Symbol& sym, int component,
 
 
 llvm::Value *
-RuntimeOptimizer::LLVMStoreShaderGlobal (Value* val, const Symbol& sym,
-                                         int component, int deriv, Value* sg_ptr)
+RuntimeOptimizer::LLVMStoreShaderGlobal (llvm::Value* val, const Symbol& sym,
+                                         int component, int deriv)
 {
     shadingsys().error ("WARNING: Store to shaderglobal unsupported!\n");
     return NULL;
@@ -334,8 +334,7 @@ RuntimeOptimizer::LLVMStoreShaderGlobal (Value* val, const Symbol& sym,
 
 void
 llvm_useparam_op (RuntimeOptimizer &rop, const Symbol& sym, int component, int deriv, 
-                  Value* sg_ptr, IRBuilder<>& builder, float* fdata,
-                  int* idata, ustring* sdata)
+                  float* fdata, int* idata, ustring* sdata)
 {
     // If the param is connected, we need the following sequence:
     // if (!initialized[param]) {
@@ -350,7 +349,6 @@ llvm_useparam_op (RuntimeOptimizer &rop, const Symbol& sym, int component, int d
 
 llvm::Value *
 RuntimeOptimizer::LoadParam (const Symbol& sym, int component, int deriv,
-                             llvm::Value* sg_ptr,
                              float* fdata, int* idata, ustring* sdata)
 {
     // The local value of the param should have already been filled in
@@ -365,7 +363,7 @@ RuntimeOptimizer::LoadParam (const Symbol& sym, int component, int deriv,
 
 llvm::Value *
 RuntimeOptimizer::loadLLVMValue (const Symbol& sym, int component,
-                                 int deriv, llvm::Value* sg_ptr)
+                                 int deriv)
 {
     // Regardless of what object this is, if it doesn't have derivs but we're asking for them, return 0
     bool has_derivs = sym.has_derivs();
@@ -381,14 +379,14 @@ RuntimeOptimizer::loadLLVMValue (const Symbol& sym, int component,
     // Handle Globals (and eventually Params) separately since they have
     // aliasing stuff and use a different layout than locals.
     if (sym.symtype() == SymTypeGlobal)
-        return LLVMLoadShaderGlobal (sym, component, deriv, sg_ptr);
+        return LLVMLoadShaderGlobal (sym, component, deriv);
 
     // Get the pointer of the aggregate (the alloca)
     int num_elements = sym.typespec().simpletype().aggregate;
     int real_component = std::min(num_elements, component);
     int index = real_component + deriv * num_elements;
     //shadingsys().info ("Looking up index %d (comp_%d -> realcomp_%d +  %d * %d) for symbol '%s'\n", index, component, real_component, deriv, num_elements, sym.mangled().c_str());
-    Value* aggregate = getLLVMSymbolBase (sym, sg_ptr);
+    llvm::Value* aggregate = getLLVMSymbolBase (sym);
     if (!aggregate) return 0;
     if (num_elements == 1 && !has_derivs) {
         // The thing is just a scalar
@@ -408,7 +406,7 @@ RuntimeOptimizer::loadLLVMValue (const Symbol& sym, int component,
 
 void
 RuntimeOptimizer::storeLLVMValue (Value* new_val, const Symbol& sym,
-                                  int component, int deriv, Value* sg_ptr)
+                                  int component, int deriv)
 {
     bool has_derivs = sym.has_derivs();
     if (!has_derivs && deriv != 0) {
@@ -416,7 +414,7 @@ RuntimeOptimizer::storeLLVMValue (Value* new_val, const Symbol& sym,
         return;
     }
 
-    Value* aggregate = getLLVMSymbolBase (sym, sg_ptr);
+    llvm::Value* aggregate = getLLVMSymbolBase (sym);
     if (!aggregate)
         return;
 
@@ -428,7 +426,7 @@ RuntimeOptimizer::storeLLVMValue (Value* new_val, const Symbol& sym,
         int index = real_component + deriv * num_elements;
 #if 1
         //shadingsys().info ("Storing value into index %d (comp_%d -> realcomp_%d +  %d * %d) for symbol '%s'\n", index, component, real_component, deriv, num_elements, sym.mangled().c_str());
-        Value* ptr = builder().CreateConstGEP2_32 (aggregate, 0, index);
+        llvm::Value* ptr = builder().CreateConstGEP2_32 (aggregate, 0, index);
         builder().CreateStore (new_val, ptr);
 #else
         builder().CreateInsertValue (aggregate, new_val, index);
@@ -439,13 +437,14 @@ RuntimeOptimizer::storeLLVMValue (Value* new_val, const Symbol& sym,
 
 
 void
-llvm_printf_op (RuntimeOptimizer &rop, llvm::LLVMContext &context, ShaderInstance* inst,
-                const Opcode& op, RuntimeOptimizer::AllocationMap& named_values, Value* sg_ptr,
-                IRBuilder<>& builder, Function* llvm_printf_func)
+llvm_printf_op (RuntimeOptimizer &rop, int opnum)
 {
+    Opcode &op (rop.inst()->ops()[opnum]);
+    llvm::Function *llvm_printf_func = rop.llvm_module()->getFunction("llvm_osl_printf");
+
     // Prepare the args for the call
     SmallVector<Value*, 16> call_args;
-    Symbol& format_sym = *inst->argsymbol(op.firstarg() + 0);
+    Symbol& format_sym = *rop.opargsym (op, 0);
     if (!format_sym.is_constant()) {
         rop.shadingsys().warning ("printf must currently have constant format\n");
         return;
@@ -483,7 +482,7 @@ llvm_printf_op (RuntimeOptimizer &rop, llvm::LLVMContext &context, ShaderInstanc
 
             std::string ourformat (oldfmt, format);  // straddle the format
             // Doctor it to fix mismatches between format and data
-            Symbol& sym (*inst->argsymbol(op.firstarg() + 1 + arg));
+            Symbol& sym (*rop.opargsym (op, 1 + arg));
             if (SkipSymbol(sym)) {
                 rop.shadingsys().warning ("symbol type for '%s' unsupported for printf\n", sym.mangled().c_str());
                 return;
@@ -495,13 +494,13 @@ llvm_printf_op (RuntimeOptimizer &rop, llvm::LLVMContext &context, ShaderInstanc
                 if (i != 0) s += " ";
                 s += ourformat;
 
-                Value* loaded = rop.loadLLVMValue (sym, i, 0, sg_ptr);
+                llvm::Value* loaded = rop.loadLLVMValue (sym, i, 0);
                 // NOTE(boulos): Annoyingly varargs makes it so that things need
                 // to be upconverted from float to double (who knew?)
                 if (sym.typespec().is_floatbased()) {
-                    call_args.push_back(builder.CreateFPExt(loaded, Type::getDoubleTy(*inst->shadingsys().llvm_context())));
+                    call_args.push_back (rop.builder().CreateFPExt(loaded, Type::getDoubleTy(rop.llvm_context())));
                 } else {
-                    call_args.push_back(loaded);
+                    call_args.push_back (loaded);
                 }
             }
             ++arg;
@@ -525,14 +524,14 @@ llvm_printf_op (RuntimeOptimizer &rop, llvm::LLVMContext &context, ShaderInstanc
     //shadingsys().info ("llvm printf. Original string = '%s', new string = '%s'",
     //     format_ustring.c_str(), s.c_str());
 
-    Value* llvm_str = builder.CreateGlobalString(s.c_str());
-    Value* llvm_ptr = builder.CreateConstGEP2_32(llvm_str, 0, 0);
+    llvm::Value* llvm_str = rop.builder().CreateGlobalString(s.c_str());
+    llvm::Value* llvm_ptr = rop.builder().CreateConstGEP2_32(llvm_str, 0, 0);
     //outs() << "Type of format string (CreateGlobalString) = " << *llvm_str << "\n";
     //outs() << "llvm_ptr after GEP = " << *llvm_ptr << "\n";
     call_args[0] = llvm_ptr;
 
     // Get llvm_osl_printf from the module
-    builder.CreateCall(llvm_printf_func, call_args.begin(), call_args.end());
+    rop.builder().CreateCall(llvm_printf_func, call_args.begin(), call_args.end());
     //outs() << "printf_call = " << *printf_call << "\n";
 }
 
@@ -556,11 +555,18 @@ RuntimeOptimizer::llvm_int_to_float (llvm::Value* ival)
 
 // Simple (pointwise) binary ops (+-*/)
 void
-llvm_binary_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opcode& op,
-                const Symbol& dst, const Symbol& src1, const Symbol& src2,
-                RuntimeOptimizer::AllocationMap& named_values, Value* sg_ptr,
-                IRBuilder<>& builder)
+llvm_binary_op (RuntimeOptimizer &rop, int opnum)
 {
+    Opcode &op (rop.inst()->ops()[opnum]);
+
+    Symbol& dst  = *rop.opargsym (op, 0);
+    Symbol& src1 = *rop.opargsym (op, 1);
+    Symbol& src2 = *rop.opargsym (op, 2);
+    if (SkipSymbol(dst) ||
+        SkipSymbol(src1) ||
+        SkipSymbol(src2))
+        return;
+
     bool dst_derivs = dst.has_derivs();
     int num_components = dst.typespec().simpletype().aggregate;
     bool is_float = dst.typespec().is_floatbased();
@@ -570,14 +576,14 @@ llvm_binary_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Op
 
     for (int i = 0; i < num_components; i++) {
         // Get src1/2 component i
-        Value* src1_load = rop.loadLLVMValue (src1, i, 0, sg_ptr);
-        Value* src2_load = rop.loadLLVMValue (src2, i, 0, sg_ptr);
+        llvm::Value* src1_load = rop.loadLLVMValue (src1, i, 0);
+        llvm::Value* src2_load = rop.loadLLVMValue (src2, i, 0);
 
         if (!src1_load) return;
         if (!src2_load) return;
 
-        Value* src1_val = src1_load;
-        Value* src2_val = src2_load;
+        llvm::Value* src1_val = src1_load;
+        llvm::Value* src2_val = src2_load;
 
         bool need_float_op = src1_float || src2_float;
         if (need_float_op) {
@@ -592,21 +598,21 @@ llvm_binary_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Op
         }
 
         // Perform the op
-        Value* result = 0;
+        llvm::Value* result = 0;
         ustring opname = op.opname();
 
         // Upconvert the value if necessary fr
 
         if (opname == op_add) {
-            result = (need_float_op) ? builder.CreateFAdd(src1_val, src2_val) : builder.CreateAdd(src1_val, src2_val);
+            result = (need_float_op) ? rop.builder().CreateFAdd(src1_val, src2_val) : rop.builder().CreateAdd(src1_val, src2_val);
         } else if (opname == op_sub) {
-            result = (need_float_op) ? builder.CreateFSub(src1_val, src2_val) : builder.CreateSub(src1_val, src2_val);
+            result = (need_float_op) ? rop.builder().CreateFSub(src1_val, src2_val) : rop.builder().CreateSub(src1_val, src2_val);
         } else if (opname == op_mul) {
-            result = (need_float_op) ? builder.CreateFMul(src1_val, src2_val) : builder.CreateMul(src1_val, src2_val);
+            result = (need_float_op) ? rop.builder().CreateFMul(src1_val, src2_val) : rop.builder().CreateMul(src1_val, src2_val);
         } else if (opname == op_div) {
-            result = (need_float_op) ? builder.CreateFDiv(src1_val, src2_val) : builder.CreateSDiv(src1_val, src2_val);
+            result = (need_float_op) ? rop.builder().CreateFDiv(src1_val, src2_val) : rop.builder().CreateSDiv(src1_val, src2_val);
         } else if (opname == op_mod) {
-            result = (need_float_op) ? builder.CreateFRem(src1_val, src2_val) : builder.CreateSRem(src1_val, src2_val);
+            result = (need_float_op) ? rop.builder().CreateFRem(src1_val, src2_val) : rop.builder().CreateSRem(src1_val, src2_val);
         } else {
             // Don't know how to handle this.
             rop.shadingsys().error ("Don't know how to handle op '%s', eliding the store\n", opname.c_str());
@@ -622,7 +628,7 @@ llvm_binary_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Op
                 // Op was float, but we need to store int
                 result = rop.llvm_float_to_int (result);
             } // otherwise just fine
-            rop.storeLLVMValue (result, dst, i, 0, sg_ptr);
+            rop.storeLLVMValue (result, dst, i, 0);
         }
 
         if (dst_derivs) {
@@ -637,11 +643,15 @@ llvm_binary_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Op
 // Simple (pointwise) unary ops (Neg, Abs, Sqrt, Ceil, Floor, ..., Log2,
 // Log10, Erf, Erfc, IsNan/IsInf/IsFinite)
 void
-llvm_unary_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opcode& op,
-               const Symbol& dst, const Symbol& src,
-               RuntimeOptimizer::AllocationMap& named_values, Value* sg_ptr, IRBuilder<>& builder,
-               Module* all_ops)
+llvm_unary_op (RuntimeOptimizer &rop, int opnum)
 {
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& dst  = *rop.opargsym (op, 0);
+    Symbol& src = *rop.opargsym (op, 1);
+    if (SkipSymbol(dst) ||
+        SkipSymbol(src))
+        return;
+
     bool dst_derivs = dst.has_derivs();
     int num_components = dst.typespec().simpletype().aggregate;
 
@@ -650,40 +660,40 @@ llvm_unary_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opc
 
     for (int i = 0; i < num_components; i++) {
         // Get src1/2 component i
-        Value* src_load = rop.loadLLVMValue (src, i, 0, sg_ptr);
+        llvm::Value* src_load = rop.loadLLVMValue (src, i, 0);
         if (!src_load) return;
 
-        Value* src_val = src_load;
+        llvm::Value* src_val = src_load;
 
         // Perform the op
-        Value* result = 0;
+        llvm::Value* result = 0;
         ustring opname = op.opname();
 
         if (opname == op_neg) {
-            result = (src_float) ? builder.CreateFNeg(src_val) : builder.CreateNeg(src_val);
+            result = (src_float) ? rop.builder().CreateFNeg(src_val) : rop.builder().CreateNeg(src_val);
         } else if (opname == op_abs ||
                    opname == op_fabs) {
             if (src_float) {
                 // Call fabsf
-                const Type* float_ty = Type::getFloatTy(llvm_context);
-                Value* fabsf_func = all_ops->getOrInsertFunction("fabsf", float_ty, float_ty, NULL);
-                result = builder.CreateCall(fabsf_func, src_val);
+                const Type* float_ty = Type::getFloatTy(rop.llvm_context());
+                llvm::Value* fabsf_func = rop.llvm_module()->getOrInsertFunction("fabsf", float_ty, float_ty, NULL);
+                result = rop.builder().CreateCall(fabsf_func, src_val);
             } else {
                 // neg_version = -x
                 // result = (x < 0) ? neg_version : x
-                Value* negated = builder.CreateNeg(src_val);
-                Value* cond = builder.CreateICmpSLT(src_val, ConstantInt::get(Type::getInt32Ty(llvm_context), 0));
-                result = builder.CreateSelect(cond, negated, src_val);
+                llvm::Value* negated = rop.builder().CreateNeg(src_val);
+                llvm::Value* cond = rop.builder().CreateICmpSLT(src_val, ConstantInt::get(Type::getInt32Ty(rop.llvm_context()), 0));
+                result = rop.builder().CreateSelect(cond, negated, src_val);
             }
         } else if (opname == op_sqrt && src_float) {
-            const Type* float_ty = Type::getFloatTy(llvm_context);
-            result = builder.CreateCall(Intrinsic::getDeclaration(all_ops, Intrinsic::sqrt, &float_ty, 1), src_val);
+            const Type* float_ty = Type::getFloatTy(rop.llvm_context());
+            result = rop.builder().CreateCall(Intrinsic::getDeclaration(rop.llvm_module(), Intrinsic::sqrt, &float_ty, 1), src_val);
         } else if (opname == op_sin && src_float) {
-            const Type* float_ty = Type::getFloatTy(llvm_context);
-            result = builder.CreateCall(Intrinsic::getDeclaration(all_ops, Intrinsic::sin, &float_ty, 1), src_val);
+            const Type* float_ty = Type::getFloatTy(rop.llvm_context());
+            result = rop.builder().CreateCall(Intrinsic::getDeclaration(rop.llvm_module(), Intrinsic::sin, &float_ty, 1), src_val);
         } else if (opname == op_cos && src_float) {
-            const Type* float_ty = Type::getFloatTy(llvm_context);
-            result = builder.CreateCall(Intrinsic::getDeclaration(all_ops, Intrinsic::cos, &float_ty, 1), src_val);
+            const Type* float_ty = Type::getFloatTy(rop.llvm_context());
+            result = rop.builder().CreateCall(Intrinsic::getDeclaration(rop.llvm_module(), Intrinsic::cos, &float_ty, 1), src_val);
         } else {
             // Don't know how to handle this.
             rop.shadingsys().error ("Don't know how to handle op '%s', eliding the store\n", opname.c_str());
@@ -699,7 +709,7 @@ llvm_unary_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opc
                 // Op was float, but we need to store int
                 result = rop.llvm_float_to_int (result);
             } // otherwise just fine
-            rop.storeLLVMValue (result, dst, i, 0, sg_ptr);
+            rop.storeLLVMValue (result, dst, i, 0);
         }
 
         if (dst_derivs) {
@@ -714,11 +724,15 @@ llvm_unary_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opc
 
 // Simple assignment
 void
-llvm_assign_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opcode& op,
-                const Symbol& dst, const Symbol& src,
-                RuntimeOptimizer::AllocationMap& named_values, Value* sg_ptr,
-                IRBuilder<>& builder)
+llvm_assign_op (RuntimeOptimizer &rop, int opnum)
 {
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& dst  = *rop.opargsym (op, 0);
+    Symbol& src = *rop.opargsym (op, 1);
+    if (SkipSymbol(dst) ||
+        SkipSymbol(src))
+        return;
+
     bool dst_derivs = dst.has_derivs();
     int num_components = dst.typespec().simpletype().aggregate;
 
@@ -729,18 +743,18 @@ llvm_assign_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Op
 
     for (int i = 0; i < num_components; i++) {
         // Get src component i
-        Value* src_val = rop.loadLLVMValue (src, i, 0, sg_ptr);
+        llvm::Value* src_val = rop.loadLLVMValue (src, i, 0);
         if (!src_val) return;
 
         // Perform the assignment
         if (dst_float && !src_float) {
             // need int -> float
-            src_val = builder.CreateSIToFP(src_val, Type::getFloatTy(llvm_context));
+            src_val = rop.builder().CreateSIToFP(src_val, Type::getFloatTy(rop.llvm_context()));
         } else if (!dst_float && src_float) {
             // float -> int
-            src_val = builder.CreateFPToSI(src_val, Type::getInt32Ty(llvm_context));
+            src_val = rop.builder().CreateFPToSI(src_val, Type::getInt32Ty(rop.llvm_context()));
         }
-        rop.storeLLVMValue (src_val, dst, i, 0, sg_ptr);
+        rop.storeLLVMValue (src_val, dst, i, 0);
 
         if (dst_derivs) {
             // mul results in <a * b, a * b_dx + b * a_dx, a * b_dy + b * a_dy>
@@ -754,11 +768,10 @@ llvm_assign_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Op
 
 // Component reference
 void
-llvm_compref_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opcode& op,
-                 const Symbol& dst, const Symbol& src, const Symbol& index,
-                 RuntimeOptimizer::AllocationMap& named_values, Value* sg_ptr,
-                 IRBuilder<>& builder)
+llvm_compref_op (RuntimeOptimizer &rop, int opnum,
+                 const Symbol& dst, const Symbol& src, const Symbol& index)
 {
+//    Opcode &op (rop.inst()->ops()[opnum]);
     bool dst_derivs = dst.has_derivs();
     int num_components = src.typespec().simpletype().aggregate;
 
@@ -777,20 +790,20 @@ llvm_compref_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const O
         return;
     }
 
-    Value* src_val = rop.loadLLVMValue (src, const_index, 0, sg_ptr);
+    llvm::Value* src_val = rop.loadLLVMValue (src, const_index, 0);
     if (!src_val) return;
 
     // Perform the assignment
     if (dst_float && !src_float) {
         // need int -> float
-        src_val = builder.CreateSIToFP(src_val, Type::getFloatTy(llvm_context));
+        src_val = rop.builder().CreateSIToFP(src_val, Type::getFloatTy(rop.llvm_context()));
     } else if (!dst_float && src_float) {
         // float -> int
-        src_val = builder.CreateFPToSI(src_val, Type::getInt32Ty(llvm_context));
+        src_val = rop.builder().CreateFPToSI(src_val, Type::getInt32Ty(rop.llvm_context()));
     }
 
     // compref is: scalar = vector[int]
-    rop.storeLLVMValue (src_val, dst, 0, 0, sg_ptr);
+    rop.storeLLVMValue (src_val, dst, 0, 0);
 
     if (dst_derivs) {
         // mul results in <a * b, a * b_dx + b * a_dx, a * b_dy + b * a_dy>
@@ -803,10 +816,20 @@ llvm_compref_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const O
 
 // Simple aggregate constructor (no conversion)
 void
-llvm_construct_aggregate (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opcode& op,
-                          const Symbol& dst, const Symbol** src_syms,
-                          RuntimeOptimizer::AllocationMap& named_values, Value* sg_ptr,
-                          IRBuilder<>& builder) {
+llvm_construct_aggregate (RuntimeOptimizer &rop, int opnum)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& dst = *rop.opargsym (op, 0);
+    Symbol& arg1 = *rop.opargsym (op, 1);
+    if (arg1.typespec().is_string()) {
+        // Using a string to say what space we want, punt for now.
+        return;  // FIXME
+    }
+    // Otherwise, the args are just data.
+    const Symbol* src_syms[16];
+    for (int i = 1; i < op.nargs(); i++)
+        src_syms[i-1] = rop.opargsym (op, i);
+
     bool dst_derivs = dst.has_derivs();
     int num_components = dst.typespec().simpletype().aggregate;
 
@@ -816,18 +839,18 @@ llvm_construct_aggregate (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context
         const Symbol& src = *src_syms[i];
         bool src_float = src.typespec().is_floatbased();
         // Get src component 0 (it should be a scalar)
-        Value* src_val = rop.loadLLVMValue (src, 0, 0, sg_ptr);
+        llvm::Value* src_val = rop.loadLLVMValue (src, 0, 0);
         if (!src_val) return;
 
         // Perform the assignment
         if (dst_float && !src_float) {
             // need int -> float
-            src_val = builder.CreateSIToFP(src_val, Type::getFloatTy(llvm_context));
+            src_val = rop.builder().CreateSIToFP(src_val, Type::getFloatTy(rop.llvm_context()));
         } else if (!dst_float && src_float) {
             // float -> int
-            src_val = builder.CreateFPToSI(src_val, Type::getInt32Ty(llvm_context));
+            src_val = rop.builder().CreateFPToSI(src_val, Type::getInt32Ty(rop.llvm_context()));
         }
-        rop.storeLLVMValue (src_val, dst, i, 0, sg_ptr);
+        rop.storeLLVMValue (src_val, dst, i, 0);
 
         if (dst_derivs) {
             // mul results in <a * b, a * b_dx + b * a_dx, a * b_dy + b * a_dy>
@@ -840,29 +863,35 @@ llvm_construct_aggregate (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context
 // Comparison ops (though other binary -> scalar ops like dot might end
 // up being similar)
 void
-llvm_compare_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opcode& op,
-                 const Symbol& dst, const Symbol& src1, const Symbol& src2,
-                 RuntimeOptimizer::AllocationMap& named_values, Value* sg_ptr,
-                 IRBuilder<>& builder)
+llvm_compare_op (RuntimeOptimizer &rop, int opnum)
 {
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& dst  = *rop.opargsym (op, 0);
+    Symbol& src1 = *rop.opargsym (op, 1);
+    Symbol& src2 = *rop.opargsym (op, 2);
+    if (SkipSymbol(dst) ||
+        SkipSymbol(src1) ||
+        SkipSymbol(src2))
+        return;
+
     bool dst_derivs = dst.has_derivs();
     int num_components = dst.typespec().simpletype().aggregate;
 
     bool src1_float = src1.typespec().is_floatbased();
     bool src2_float = src2.typespec().is_floatbased();
 
-    Value* final_result = 0;
+    llvm::Value* final_result = 0;
 
     for (int i = 0; i < num_components; i++) {
         // Get src1/2 component i
-        Value* src1_load = rop.loadLLVMValue (src1, i, 0, sg_ptr);
-        Value* src2_load = rop.loadLLVMValue (src2, i, 0, sg_ptr);
+        llvm::Value* src1_load = rop.loadLLVMValue (src1, i, 0);
+        llvm::Value* src2_load = rop.loadLLVMValue (src2, i, 0);
 
         if (!src1_load) return;
         if (!src2_load) return;
 
-        Value* src1_val = src1_load;
-        Value* src2_val = src2_load;
+        llvm::Value* src1_val = src1_load;
+        llvm::Value* src2_val = src2_load;
 
         bool need_float_op = src1_float || src2_float;
         if (need_float_op) {
@@ -877,24 +906,24 @@ llvm_compare_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const O
         }
 
         // Perform the op
-        Value* result = 0;
+        llvm::Value* result = 0;
 
         ustring opname = op.opname();
 
         // Upconvert the value if necessary fr
 
         if (opname == op_lt) {
-            result = (need_float_op) ? builder.CreateFCmpULT(src1_val, src2_val) : builder.CreateICmpSLT(src1_val, src2_val);
+            result = (need_float_op) ? rop.builder().CreateFCmpULT(src1_val, src2_val) : rop.builder().CreateICmpSLT(src1_val, src2_val);
         } else if (opname == op_le) {
-            result = (need_float_op) ? builder.CreateFCmpULE(src1_val, src2_val) : builder.CreateICmpSLE(src1_val, src2_val);
+            result = (need_float_op) ? rop.builder().CreateFCmpULE(src1_val, src2_val) : rop.builder().CreateICmpSLE(src1_val, src2_val);
         } else if (opname == op_eq) {
-            result = (need_float_op) ? builder.CreateFCmpUEQ(src1_val, src2_val) : builder.CreateICmpEQ(src1_val, src2_val);
+            result = (need_float_op) ? rop.builder().CreateFCmpUEQ(src1_val, src2_val) : rop.builder().CreateICmpEQ(src1_val, src2_val);
         } else if (opname == op_ge) {
-            result = (need_float_op) ? builder.CreateFCmpUGE(src1_val, src2_val) : builder.CreateICmpSGE(src1_val, src2_val);
+            result = (need_float_op) ? rop.builder().CreateFCmpUGE(src1_val, src2_val) : rop.builder().CreateICmpSGE(src1_val, src2_val);
         } else if (opname == op_gt) {
-            result = (need_float_op) ? builder.CreateFCmpUGT(src1_val, src2_val) : builder.CreateICmpSGT(src1_val, src2_val);
+            result = (need_float_op) ? rop.builder().CreateFCmpUGT(src1_val, src2_val) : rop.builder().CreateICmpSGT(src1_val, src2_val);
         } else if (opname == op_neq) {
-            result = (need_float_op) ? builder.CreateFCmpUNE(src1_val, src2_val) : builder.CreateICmpNE(src1_val, src2_val);
+            result = (need_float_op) ? rop.builder().CreateFCmpUNE(src1_val, src2_val) : rop.builder().CreateICmpNE(src1_val, src2_val);
         } else {
             // Don't know how to handle this.
             rop.shadingsys().error ("Don't know how to handle op '%s', eliding the store\n", opname.c_str());
@@ -905,10 +934,10 @@ llvm_compare_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const O
                 // Combine the component bool based on the op
                 if (opname != op_neq) {
                     // final_result &= result
-                    final_result = builder.CreateAnd(final_result, result);
+                    final_result = rop.builder().CreateAnd(final_result, result);
                 } else {
                     // final_result |= result
-                    final_result = builder.CreateOr(final_result, result);
+                    final_result = rop.builder().CreateOr(final_result, result);
                 }
             } else {
                 final_result = result;
@@ -918,14 +947,14 @@ llvm_compare_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const O
 
     if (final_result) {
         // Convert the single bit bool into an int for now.
-        final_result = builder.CreateZExt(final_result, Type::getInt32Ty(llvm_context));
+        final_result = rop.builder().CreateZExt(final_result, Type::getInt32Ty(rop.llvm_context()));
 
         bool is_float = dst.typespec().is_floatbased();
         if (is_float) {
             final_result = rop.llvm_int_to_float (final_result);
         }
 
-        rop.storeLLVMValue (final_result, dst, 0, 0, sg_ptr);
+        rop.storeLLVMValue (final_result, dst, 0, 0);
         if (dst_derivs) {
             // deriv of conditional!?
             rop.shadingsys().info ("punting on derivatives for now\n");
@@ -934,33 +963,39 @@ llvm_compare_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const O
     }
 }
 
+
+
 // unary reduction ops (length, luminance, determinant (much more complicated...))
 void
-llvm_unary_reduction (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opcode& op,
-                      const Symbol& dst, const Symbol& src,
-                      RuntimeOptimizer::AllocationMap& named_values, Value* sg_ptr,
-                      IRBuilder<>& builder, Module* all_ops)
+llvm_unary_reduction (RuntimeOptimizer &rop, int opnum)
 {
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& dst  = *rop.opargsym (op, 0);
+    Symbol& src = *rop.opargsym (op, 1);
+    if (SkipSymbol(dst) ||
+        SkipSymbol(src))
+        return;
+
     bool dst_derivs = dst.has_derivs();
     // Loop over the source
     int num_components = src.typespec().simpletype().aggregate;
 
-    Value* final_result = 0;
+    llvm::Value* final_result = 0;
     ustring opname = op.opname();
 
     for (int i = 0; i < num_components; i++) {
         // Get src1/2 component i
-        Value* src_load = rop.loadLLVMValue (src, i, 0, sg_ptr);
+        llvm::Value* src_load = rop.loadLLVMValue (src, i, 0);
 
         if (!src_load) return;
 
-        Value* src_val = src_load;
+        llvm::Value* src_val = src_load;
 
         // Perform the op
-        Value* result = 0;
+        llvm::Value* result = 0;
 
         if (opname == op_length) {
-            result = builder.CreateFMul(src_val, src_val);
+            result = rop.builder().CreateFMul(src_val, src_val);
         } else if (opname == op_luminance) {
             float coeff = 0.f;
             switch (i) {
@@ -968,7 +1003,7 @@ llvm_unary_reduction (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, co
             case 1: coeff = .7152f; break;
             default: coeff = .0722f; break;
             }
-            result = builder.CreateFMul(src_val, ConstantFP::get(llvm_context, APFloat(coeff)));
+            result = rop.builder().CreateFMul(src_val, ConstantFP::get(rop.llvm_context(), APFloat(coeff)));
         } else {
             // Don't know how to handle this.
             rop.shadingsys().error ("Don't know how to handle op '%s', eliding the store\n", opname.c_str());
@@ -976,7 +1011,7 @@ llvm_unary_reduction (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, co
 
         if (result) {
             if (final_result) {
-                final_result = builder.CreateFAdd(final_result, result);
+                final_result = rop.builder().CreateFAdd(final_result, result);
             } else {
                 final_result = result;
             }
@@ -987,11 +1022,11 @@ llvm_unary_reduction (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, co
         // Compute sqrtf(result) if it's length instead of luminance
         if (opname == op_length) {
             // Take sqrt
-            const Type* float_ty = Type::getFloatTy(llvm_context);
-            final_result = builder.CreateCall(Intrinsic::getDeclaration(all_ops, Intrinsic::sqrt, &float_ty, 1), final_result);
+            const Type* float_ty = Type::getFloatTy(rop.llvm_context());
+            final_result = rop.builder().CreateCall(Intrinsic::getDeclaration(rop.llvm_module(), Intrinsic::sqrt, &float_ty, 1), final_result);
         }
 
-        rop.storeLLVMValue (final_result, dst, 0, 0, sg_ptr);
+        rop.storeLLVMValue (final_result, dst, 0, 0);
         if (dst_derivs) {
             rop.shadingsys().info ("punting on derivatives for now\n");
             // FIXME
@@ -999,37 +1034,45 @@ llvm_unary_reduction (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, co
     }
 }
 
+
+
 // dot. This is could easily be a more general f(Agg, Agg) -> Scalar,
 // but we don't seem to have any others.
 void
-llvm_dot_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opcode& op,
-             const Symbol& dst, const Symbol& src1, const Symbol& src2,
-             RuntimeOptimizer::AllocationMap& named_values, Value* sg_ptr,
-             IRBuilder<>& builder, Module* all_ops)
+llvm_dot_op (RuntimeOptimizer &rop, int opnum)
 {
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& dst  = *rop.opargsym (op, 0);
+    Symbol& src1 = *rop.opargsym (op, 1);
+    Symbol& src2 = *rop.opargsym (op, 2);
+    if (SkipSymbol(dst) ||
+        SkipSymbol(src1) ||
+        SkipSymbol(src2))
+        return;
+
     bool dst_derivs = dst.has_derivs();
     // Loop over the sources
     int num_components = src1.typespec().simpletype().aggregate;
 
-    Value* final_result = 0;
+    llvm::Value* final_result = 0;
 
     for (int i = 0; i < num_components; i++) {
         // Get src1/src2 component i
-        Value* src1_load = rop.loadLLVMValue (src1, i, 0, sg_ptr);
-        Value* src2_load = rop.loadLLVMValue (src2, i, 0, sg_ptr);
+        llvm::Value* src1_load = rop.loadLLVMValue (src1, i, 0);
+        llvm::Value* src2_load = rop.loadLLVMValue (src2, i, 0);
 
         if (!src1_load || !src2_load) return;
 
-        Value* result = builder.CreateFMul(src1_load, src2_load);
+        llvm::Value* result = rop.builder().CreateFMul(src1_load, src2_load);
 
         if (final_result) {
-            final_result = builder.CreateFAdd(final_result, result);
+            final_result = rop.builder().CreateFAdd(final_result, result);
         } else {
             final_result = result;
         }
     }
 
-    rop.storeLLVMValue (final_result, dst, 0, 0, sg_ptr);
+    rop.storeLLVMValue (final_result, dst, 0, 0);
     if (dst_derivs) {
         rop.shadingsys().info ("punting on derivatives for now\n");
         // FIXME
@@ -1040,11 +1083,17 @@ llvm_dot_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opcod
 
 // cross.
 void
-llvm_cross_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opcode& op,
-               const Symbol& dst, const Symbol& src1, const Symbol& src2,
-               RuntimeOptimizer::AllocationMap& named_values, Value* sg_ptr,
-               IRBuilder<>& builder, Module* all_ops)
+llvm_cross_op (RuntimeOptimizer &rop, int opnum)
 {
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& dst  = *rop.opargsym (op, 0);
+    Symbol& src1 = *rop.opargsym (op, 1);
+    Symbol& src2 = *rop.opargsym (op, 2);
+    if (SkipSymbol(dst) ||
+        SkipSymbol(src1) ||
+        SkipSymbol(src2))
+        return;
+
     bool dst_derivs = dst.has_derivs();
     int num_components = dst.typespec().simpletype().aggregate;
 
@@ -1056,19 +1105,19 @@ llvm_cross_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opc
         int src2_idx0[3] = { 2, 0, 1 };
         int src2_idx1[3] = { 1, 2, 0 };
 
-        Value* src1_load0 = rop.loadLLVMValue (src1, src1_idx0[i], 0, sg_ptr);
-        Value* src1_load1 = rop.loadLLVMValue (src1, src1_idx1[i], 0, sg_ptr);
+        llvm::Value* src1_load0 = rop.loadLLVMValue (src1, src1_idx0[i], 0);
+        llvm::Value* src1_load1 = rop.loadLLVMValue (src1, src1_idx1[i], 0);
 
-        Value* src2_load0 = rop.loadLLVMValue (src2, src2_idx0[i], 0, sg_ptr);
-        Value* src2_load1 = rop.loadLLVMValue (src2, src2_idx1[i], 0, sg_ptr);
+        llvm::Value* src2_load0 = rop.loadLLVMValue (src2, src2_idx0[i], 0);
+        llvm::Value* src2_load1 = rop.loadLLVMValue (src2, src2_idx1[i], 0);
 
         if (!src1_load0 || !src1_load1 || !src2_load0 || !src2_load1) return;
 
-        Value* prod0 = builder.CreateFMul(src1_load0, src2_load0);
-        Value* prod1 = builder.CreateFMul(src1_load1, src2_load1);
-        Value* result = builder.CreateFSub(prod0, prod1);
+        llvm::Value* prod0 = rop.builder().CreateFMul(src1_load0, src2_load0);
+        llvm::Value* prod1 = rop.builder().CreateFMul(src1_load1, src2_load1);
+        llvm::Value* result = rop.builder().CreateFSub(prod0, prod1);
 
-        rop.storeLLVMValue (result, dst, i, 0, sg_ptr);
+        rop.storeLLVMValue (result, dst, i, 0);
         if (dst_derivs) {
             rop.shadingsys().info ("punting on derivatives for now\n");
             // FIXME
@@ -1082,52 +1131,56 @@ llvm_cross_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opc
 // that we need to then apply to the whole vector. TODO(boulos): Try
 // to reuse the length code maybe?
 void
-llvm_normalize_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opcode& op,
-                   const Symbol& dst, const Symbol& src,
-                   RuntimeOptimizer::AllocationMap& named_values, Value* sg_ptr,
-                   IRBuilder<>& builder, Module* all_ops)
+llvm_normalize_op (RuntimeOptimizer &rop, int opnum)
 {
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& dst  = *rop.opargsym (op, 0);
+    Symbol& src = *rop.opargsym (op, 1);
+    if (SkipSymbol(dst) ||
+        SkipSymbol(src))
+        return;
+
     bool dst_derivs = dst.has_derivs();
     int num_components = dst.typespec().simpletype().aggregate;
 
-    Value* length_squared = 0;
+    llvm::Value* length_squared = 0;
 
     for (int i = 0; i < num_components; i++) {
         // Get src component i
-        Value* src_load = rop.loadLLVMValue (src, i, 0, sg_ptr);
+        llvm::Value* src_load = rop.loadLLVMValue (src, i, 0);
 
         if (!src_load) return;
 
-        Value* src_val = src_load;
+        llvm::Value* src_val = src_load;
 
         // Perform the op
-        Value* result = builder.CreateFMul(src_val, src_val);
+        llvm::Value* result = rop.builder().CreateFMul(src_val, src_val);
 
         if (length_squared) {
-            length_squared = builder.CreateFAdd(length_squared, result);
+            length_squared = rop.builder().CreateFAdd(length_squared, result);
         } else {
             length_squared = result;
         }
     }
 
     // Take sqrt
-    const Type* float_ty = Type::getFloatTy(llvm_context);
-    Value* length = builder.CreateCall(Intrinsic::getDeclaration(all_ops, Intrinsic::sqrt, &float_ty, 1), length_squared);
+    const Type* float_ty = Type::getFloatTy(rop.llvm_context());
+    llvm::Value* length = rop.builder().CreateCall(Intrinsic::getDeclaration(rop.llvm_module(), Intrinsic::sqrt, &float_ty, 1), length_squared);
     // Compute 1/length
-    Value* inv_length = builder.CreateFDiv(ConstantFP::get(llvm_context, APFloat(1.f)), length);
+    llvm::Value* inv_length = rop.builder().CreateFDiv(ConstantFP::get(rop.llvm_context(), APFloat(1.f)), length);
 
     for (int i = 0; i < num_components; i++) {
         // Get src component i
-        Value* src_load = rop.loadLLVMValue (src, i, 0, sg_ptr);
+        llvm::Value* src_load = rop.loadLLVMValue (src, i, 0);
 
         if (!src_load) return;
 
-        Value* src_val = src_load;
+        llvm::Value* src_val = src_load;
 
         // Perform the op (src_val * inv_length is the order in opvector.cpp)
-        Value* result = builder.CreateFMul(src_val, inv_length);
+        llvm::Value* result = rop.builder().CreateFMul(src_val, inv_length);
 
-        rop.storeLLVMValue (result, dst, i, 0, sg_ptr);
+        rop.storeLLVMValue (result, dst, i, 0);
         if (dst_derivs) {
             rop.shadingsys().info ("punting on derivatives for now\n");
             // FIXME
@@ -1138,40 +1191,41 @@ llvm_normalize_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const
 
 
 void
-llvm_if_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opcode& op,
-            const Symbol& cond, RuntimeOptimizer::AllocationMap& named_values, Value* sg_ptr,
-            IRBuilder<>& builder, int op_index, RuntimeOptimizer::BasicBlockMap& bb_map)
+llvm_if_op (RuntimeOptimizer &rop, int opnum, const Symbol& cond)
 {
+    Opcode &op (rop.inst()->ops()[opnum]);
+    RuntimeOptimizer::BasicBlockMap& bb_map (rop.bb_map());
+
     // Load the condition variable
-    Value* cond_load = rop.loadLLVMValue (cond, 0, 0, sg_ptr);
+    llvm::Value* cond_load = rop.loadLLVMValue (cond, 0, 0);
     // Convert the int to a bool via truncation
-    Value* cond_bool = builder.CreateTrunc (cond_load, Type::getInt1Ty(llvm_context));
+    llvm::Value* cond_bool = rop.builder().CreateTrunc (cond_load, Type::getInt1Ty(rop.llvm_context()));
     // Branch on the condition, to our blocks
-    BasicBlock* then_block = bb_map[op_index+1];
+    BasicBlock* then_block = bb_map[opnum+1];
     BasicBlock* else_block = bb_map[op.jump(0)];
     BasicBlock* after_block = bb_map[op.jump(1)];
-    builder.CreateCondBr (cond_bool, then_block, else_block);
+    rop.builder().CreateCondBr (cond_bool, then_block, else_block);
     // Put an unconditional branch at the end of the Then and Else blocks
     if (then_block != after_block) {
-        builder.SetInsertPoint (then_block);
-        builder.CreateBr (after_block);
+        rop.builder().SetInsertPoint (then_block);
+        rop.builder().CreateBr (after_block);
     }
     if (else_block != after_block) {
-        builder.SetInsertPoint (else_block);
-        builder.CreateBr (after_block);
+        rop.builder().SetInsertPoint (else_block);
+        rop.builder().CreateBr (after_block);
     }
 }
 
 
 
 void
-llvm_loop_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opcode& op,
-              const Symbol& cond, RuntimeOptimizer::AllocationMap& named_values,
-              Value* sg_ptr, IRBuilder<>& builder,
-              int op_index, RuntimeOptimizer::BasicBlockMap& bb_map)
+llvm_loop_op (RuntimeOptimizer &rop, int opnum, const Symbol& cond)
 {
+    Opcode &op (rop.inst()->ops()[opnum]);
+    RuntimeOptimizer::BasicBlockMap& bb_map (rop.bb_map());
+
     // Branch on the condition, to our blocks
-    BasicBlock* init_block = bb_map[op_index+1];
+    BasicBlock* init_block = bb_map[opnum+1];
     BasicBlock* cond_block = bb_map[op.jump(0)];
     BasicBlock* body_block = bb_map[op.jump(1)];
     BasicBlock* step_block = bb_map[op.jump(2)];
@@ -1180,47 +1234,46 @@ llvm_loop_op (RuntimeOptimizer &rop, llvm::LLVMContext &llvm_context, const Opco
     // Insert the unconditional jump to the LoopCond
     if (init_block != cond_block) {
         // There are some init ops, insert branch afterwards (but first jump to InitBlock)
-        builder.CreateBr(init_block);
-        builder.SetInsertPoint(init_block);
+        rop.builder().CreateBr(init_block);
+        rop.builder().SetInsertPoint(init_block);
     }
     // Either we have init ops (and we'll jump to LoopCond afterwards)
     // or we don't and we need a terminator in the current block. If
     // we're a dowhile loop, we jump to the body block after init
     // instead of cond.
     if (op.opname() == op_dowhile) {
-        builder.CreateBr(body_block);
+        rop.builder().CreateBr(body_block);
     } else {
-        builder.CreateBr(cond_block);
+        rop.builder().CreateBr(cond_block);
     }
 
-    builder.SetInsertPoint(cond_block);
+    rop.builder().SetInsertPoint(cond_block);
     // Load the condition variable (it will have been computed by now)
-    Value* cond_load = rop.loadLLVMValue (cond, 0, 0, sg_ptr);
+    llvm::Value* cond_load = rop.loadLLVMValue (cond, 0, 0);
     // Convert the int to a bool via truncation
-    Value* cond_bool = builder.CreateTrunc(cond_load, Type::getInt1Ty(llvm_context));
+    llvm::Value* cond_bool = rop.builder().CreateTrunc(cond_load, Type::getInt1Ty(rop.llvm_context()));
     // Jump to either LoopBody or AfterLoop
-    builder.CreateCondBr(cond_bool, body_block, after_block);
+    rop.builder().CreateCondBr(cond_bool, body_block, after_block);
 
     // Put an unconditional jump from Body into Step
     if (step_block != after_block) {
-        builder.SetInsertPoint(body_block);
-        builder.CreateBr(step_block);
+        rop.builder().SetInsertPoint(body_block);
+        rop.builder().CreateBr(step_block);
 
         // Put an unconditional jump from Step to Cond
-        builder.SetInsertPoint(step_block);
-        builder.CreateBr(cond_block);
+        rop.builder().SetInsertPoint(step_block);
+        rop.builder().CreateBr(cond_block);
     } else {
         // Step is empty, probably a do_while or while loop. Jump from Body to Cond
-        builder.SetInsertPoint(body_block);
-        builder.CreateBr(cond_block);
+        rop.builder().SetInsertPoint(body_block);
+        rop.builder().CreateBr(cond_block);
     }
 }
 
 
 
 void
-RuntimeOptimizer::llvm_assign_initial_constant (const Symbol& sym,
-                                                llvm::Value* sg_ptr)
+RuntimeOptimizer::llvm_assign_initial_constant (const Symbol& sym)
 {
     ASSERT (sym.is_constant() && ! sym.has_derivs());
     int num_components = sym.typespec().simpletype().aggregate;
@@ -1239,7 +1292,7 @@ RuntimeOptimizer::llvm_assign_initial_constant (const Symbol& sym,
             init_val = ConstantInt::get(llvm_context(), APInt(32, ival));
             // shadingsys.info ("%d\n", ival);
         }
-        storeLLVMValue (init_val, sym, i, 0, sg_ptr);
+        storeLLVMValue (init_val, sym, i, 0);
     }
 }
 
@@ -1260,7 +1313,8 @@ RuntimeOptimizer::build_llvm_version ()
     llvm::Function* layer_func = cast<Function>(all_ops->getOrInsertFunction(unique_layer_name, Type::getVoidTy(*m_llvm_context), sg_ptr_type, NULL));
     const OpcodeVec& instance_ops (inst()->ops());
     Function::arg_iterator arg_it = layer_func->arg_begin();
-    Value* sg_ptr = arg_it++;
+    // Get shader globals pointer
+    m_llvm_shaderglobals_ptr = arg_it++;
 
     BasicBlock* entry_bb = BasicBlock::Create(*m_llvm_context, "EntryBlock", layer_func);
 
@@ -1275,9 +1329,9 @@ RuntimeOptimizer::build_llvm_version ()
         if (s.symtype() == SymTypeGlobal)
             continue;
         // Make space
-        getOrAllocateLLVMSymbol (s, sg_ptr, layer_func);
+        getOrAllocateLLVMSymbol (s, layer_func);
         if (s.is_constant())
-            llvm_assign_initial_constant (s, sg_ptr);
+            llvm_assign_initial_constant (s);
     }
 
     // All the symbols are stack allocated now.
@@ -1292,14 +1346,13 @@ RuntimeOptimizer::build_llvm_version ()
     // probably wrong...
     std::vector<bool> bb_start (instance_ops.size(), false);
 
-    for (size_t i = 0; i < instance_ops.size(); i++) {
-
-        const Opcode& op = instance_ops[i];
+    for (size_t opnum = 0; opnum < instance_ops.size(); ++opnum) {
+        const Opcode& op = instance_ops[opnum];
         if (op.opname() == op_if) {
             // For a true BasicBlock, since we are going to conditionally
             // jump into the ThenBlock, we need to label the next
             // instruction as starting ThenBlock.
-            bb_start[i+1] = true;
+            bb_start[opnum+1] = true;
             // The ElseBlock also can be jumped to
             bb_start[op.jump(0)] = true;
             // And ExitBlock
@@ -1307,7 +1360,7 @@ RuntimeOptimizer::build_llvm_version ()
         } else if (op.opname() == op_for ||
                    op.opname() == op_while ||
                    op.opname() == op_dowhile) {
-            bb_start[i+1] = true; // LoopInit
+            bb_start[opnum+1] = true; // LoopInit
             bb_start[op.jump(0)] = true; // LoopCond
             bb_start[op.jump(1)] = true; // LoopBody
             bb_start[op.jump(2)] = true; // LoopStep
@@ -1317,17 +1370,16 @@ RuntimeOptimizer::build_llvm_version ()
 
     // Create a map from ops with bb_start=true to their BasicBlock*
     m_bb_map.clear ();
-    for (size_t i = 0; i < instance_ops.size(); i++) {
-        if (bb_start[i])
-            m_bb_map[i] = BasicBlock::Create (*m_llvm_context, "", layer_func);
+    for (size_t opnum = 0; opnum < instance_ops.size(); ++opnum) {
+        if (bb_start[opnum])
+            m_bb_map[opnum] = BasicBlock::Create (*m_llvm_context, "", layer_func);
     }
 
-    for (size_t i = 0; i < instance_ops.size(); i++) {
-        const Opcode& op = instance_ops[i];
-
-        if (bb_start[i]) {
+    for (size_t opnum = 0; opnum < instance_ops.size(); ++opnum) {
+        const Opcode& op = instance_ops[opnum];
+        if (bb_start[opnum]) {
             // If we start a new BasicBlock, point the builder there.
-            BasicBlock* next_bb = m_bb_map[i];
+            BasicBlock* next_bb = m_bb_map[opnum];
             if (next_bb != entry_bb) {
                 // If we're not the entry block (which is where all the
                 // AllocaInstructions go), then start insertion at the
@@ -1348,90 +1400,34 @@ RuntimeOptimizer::build_llvm_version ()
             op.opname() == op_mul ||
             op.opname() == op_div ||
             op.opname() == op_mod) {
-            Symbol& dst  = *opargsym (op, 0);
-            Symbol& src1 = *opargsym (op, 1);
-            Symbol& src2 = *opargsym (op, 2);
-
-            if (SkipSymbol(dst) ||
-                SkipSymbol(src1) ||
-                SkipSymbol(src2))
-                continue;
-
-            llvm_binary_op (*this, *m_llvm_context, op, dst, src1, src2, named_values(), sg_ptr, builder());
+            llvm_binary_op (*this, opnum);
         } else if (op.opname() == op_dot) {
-            Symbol& dst  = *opargsym (op, 0);
-            Symbol& src1 = *opargsym (op, 1);
-            Symbol& src2 = *opargsym (op, 2);
-            if (SkipSymbol(dst) ||
-                SkipSymbol(src1) ||
-                SkipSymbol(src2))
-                continue;
-
-            llvm_dot_op (*this, *m_llvm_context, op, dst, src1, src2, named_values(), sg_ptr, builder(), all_ops);
+            llvm_dot_op (*this, opnum);
         } else if (op.opname() == op_cross) {
-            Symbol& dst  = *opargsym (op, 0);
-            Symbol& src1 = *opargsym (op, 1);
-            Symbol& src2 = *opargsym (op, 2);
-            if (SkipSymbol(dst) ||
-                SkipSymbol(src1) ||
-                SkipSymbol(src2))
-                continue;
-
-            llvm_cross_op (*this, *m_llvm_context, op, dst, src1, src2, named_values(), sg_ptr, builder(), all_ops);
+            llvm_cross_op (*this, opnum);
         } else if (op.opname() == op_lt ||
                    op.opname() == op_le ||
                    op.opname() == op_eq ||
                    op.opname() == op_ge ||
                    op.opname() == op_gt ||
                    op.opname() == op_neq) {
-            Symbol& dst = *opargsym (op, 0);
-            Symbol& src1 = *opargsym (op, 1);
-            Symbol& src2 = *opargsym (op, 2);
-
-            if (SkipSymbol(dst) ||
-                SkipSymbol(src1) ||
-                SkipSymbol(src2))
-                continue;
-
-            llvm_compare_op (*this, *m_llvm_context, op, dst, src1, src2, named_values(), sg_ptr, builder());
+            llvm_compare_op (*this, opnum);
         } else if (op.opname() == op_neg ||
                    op.opname() == op_abs ||
                    op.opname() == op_fabs ||
                    op.opname() == op_sqrt ||
                    op.opname() == op_sin ||
                    op.opname() == op_cos) {
-            Symbol& dst = *opargsym (op, 0);
-            Symbol& src = *opargsym (op, 1);
-            if (SkipSymbol(dst) ||
-                SkipSymbol(src))
-                continue;
-
-            llvm_unary_op (*this, *m_llvm_context, op, dst, src, named_values(), sg_ptr, builder(), all_ops);
+            llvm_unary_op (*this, opnum);
         } else if (op.opname() == op_normalize) {
-            Symbol& dst = *opargsym (op, 0);
-            Symbol& src = *opargsym (op, 1);
-            if (SkipSymbol(dst) ||
-                SkipSymbol(src))
-                continue;
-
-            llvm_normalize_op (*this, *m_llvm_context, op, dst, src, named_values(), sg_ptr, builder(), all_ops);
+            llvm_normalize_op (*this, opnum);
         } else if (op.opname() == op_length ||
                    op.opname() == op_luminance) {
-            Symbol& dst = *opargsym (op, 0);
-            Symbol& src = *opargsym (op, 1);
-            if (SkipSymbol(dst) ||
-                SkipSymbol(src))
-                continue;
-
-            llvm_unary_reduction (*this, *m_llvm_context, op, dst, src, named_values(), sg_ptr, builder(), all_ops);
+            llvm_unary_reduction (*this, opnum);
         } else if (op.opname() == op_printf) {
-            llvm_printf_op (*this, *m_llvm_context, inst(), op, named_values(), sg_ptr, builder(), all_ops->getFunction("llvm_osl_printf"));
+            llvm_printf_op (*this, opnum);
         } else if (op.opname() == op_assign) {
-            Symbol& dst = *opargsym (op, 0);
-            Symbol& src = *opargsym (op, 1);
-            if (SkipSymbol(dst) ||
-                SkipSymbol(src)) continue;
-            llvm_assign_op (*this, *m_llvm_context, op, dst, src, named_values(), sg_ptr, builder());
+            llvm_assign_op (*this, opnum);
         } else if (op.opname() == op_compref) {
             Symbol& dst = *opargsym (op, 0);
             Symbol& src = *opargsym (op, 1);
@@ -1439,21 +1435,10 @@ RuntimeOptimizer::build_llvm_version ()
             if (SkipSymbol(dst) ||
                 SkipSymbol(src) ||
                 SkipSymbol(idx)) continue;
-            llvm_compref_op (*this, *m_llvm_context, op, dst, src, idx, named_values(), sg_ptr, builder());
+            llvm_compref_op (*this, opnum, dst, src, idx);
         } else if (op.opname() == op_vector ||
                    op.opname() == op_color) {
-            Symbol& dst = *opargsym (op, 0);
-            Symbol& arg1 = *opargsym (op, 1);
-            if (arg1.typespec().is_string()) {
-                // Using a string to say what space we want, punt for
-                // now.
-                continue;
-            }
-            // Otherwise, the args are just data.
-            const Symbol* src_vars[16];
-            for (int i = 1; i < op.nargs(); i++)
-                src_vars[i-1] = opargsym (op, i);
-            llvm_construct_aggregate (*this, *m_llvm_context, op, dst, src_vars, named_values(), sg_ptr, builder());
+            llvm_construct_aggregate (*this, opnum);
         } else if (op.opname() == op_if ||
                    op.opname() == op_for ||
                    op.opname() == op_while ||
@@ -1461,9 +1446,9 @@ RuntimeOptimizer::build_llvm_version ()
             Symbol& cond = *opargsym (op, 0);
             if (SkipSymbol(cond)) continue;
             if (op.opname() == op_if) {
-                llvm_if_op (*this, *m_llvm_context, op, cond, named_values(), sg_ptr, builder(), i, m_bb_map);
+                llvm_if_op (*this, opnum, cond);
             } else {
-                llvm_loop_op (*this, *m_llvm_context, op, cond, named_values(), sg_ptr, builder(), i, m_bb_map);
+                llvm_loop_op (*this, opnum, cond);
             }
         } else if (op.opname() == op_nop ||
                    op.opname() == op_end) {
