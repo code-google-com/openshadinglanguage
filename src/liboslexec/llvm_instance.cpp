@@ -89,6 +89,20 @@ static ustring op_while("while");
 
 
 
+/// Macro that defines the arguments to LLVM IR generating routines
+///
+#define LLVM_IR_GENERATOR_ARGS     RuntimeOptimizer &rop, int opnum
+
+/// Macro that defines the full declaration of a shadeop constant-folder.
+/// 
+#define DECL_LLVMER(name)  void name (LLVM_IR_GENERATOR_ARGS)
+
+/// Function pointer to an LLVM IR-generating routine
+///
+typedef void (*OpLLVMer) (LLVM_IR_GENERATOR_ARGS);
+
+
+
 
 const llvm::StructType *
 RuntimeOptimizer::getShaderGlobalType ()
@@ -437,7 +451,7 @@ RuntimeOptimizer::storeLLVMValue (Value* new_val, const Symbol& sym,
 
 
 void
-llvm_printf_op (RuntimeOptimizer &rop, int opnum)
+llvm_gen_printf (RuntimeOptimizer &rop, int opnum)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     llvm::Function *llvm_printf_func = rop.llvm_module()->getFunction("llvm_osl_printf");
@@ -555,7 +569,7 @@ RuntimeOptimizer::llvm_int_to_float (llvm::Value* ival)
 
 // Simple (pointwise) binary ops (+-*/)
 void
-llvm_binary_op (RuntimeOptimizer &rop, int opnum)
+llvm_gen_binary_op (RuntimeOptimizer &rop, int opnum)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
 
@@ -643,7 +657,7 @@ llvm_binary_op (RuntimeOptimizer &rop, int opnum)
 // Simple (pointwise) unary ops (Neg, Abs, Sqrt, Ceil, Floor, ..., Log2,
 // Log10, Erf, Erfc, IsNan/IsInf/IsFinite)
 void
-llvm_unary_op (RuntimeOptimizer &rop, int opnum)
+llvm_gen_unary_op (RuntimeOptimizer &rop, int opnum)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& dst  = *rop.opargsym (op, 0);
@@ -724,7 +738,7 @@ llvm_unary_op (RuntimeOptimizer &rop, int opnum)
 
 // Simple assignment
 void
-llvm_assign_op (RuntimeOptimizer &rop, int opnum)
+llvm_gen_assign (RuntimeOptimizer &rop, int opnum)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& dst  = *rop.opargsym (op, 0);
@@ -768,10 +782,17 @@ llvm_assign_op (RuntimeOptimizer &rop, int opnum)
 
 // Component reference
 void
-llvm_compref_op (RuntimeOptimizer &rop, int opnum,
-                 const Symbol& dst, const Symbol& src, const Symbol& index)
+llvm_gen_compref (RuntimeOptimizer &rop, int opnum)
 {
-//    Opcode &op (rop.inst()->ops()[opnum]);
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& dst = *rop.opargsym (op, 0);
+    Symbol& src = *rop.opargsym (op, 1);
+    Symbol& index = *rop.opargsym (op, 2);
+    if (SkipSymbol(dst) ||
+        SkipSymbol(src) ||
+        SkipSymbol(index))
+        return;
+
     bool dst_derivs = dst.has_derivs();
     int num_components = src.typespec().simpletype().aggregate;
 
@@ -816,7 +837,7 @@ llvm_compref_op (RuntimeOptimizer &rop, int opnum,
 
 // Simple aggregate constructor (no conversion)
 void
-llvm_construct_aggregate (RuntimeOptimizer &rop, int opnum)
+llvm_gen_construct_aggregate (RuntimeOptimizer &rop, int opnum)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& dst = *rop.opargsym (op, 0);
@@ -860,10 +881,12 @@ llvm_construct_aggregate (RuntimeOptimizer &rop, int opnum)
     }
 }
 
+
+
 // Comparison ops (though other binary -> scalar ops like dot might end
 // up being similar)
 void
-llvm_compare_op (RuntimeOptimizer &rop, int opnum)
+llvm_gen_compare_op (RuntimeOptimizer &rop, int opnum)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& dst  = *rop.opargsym (op, 0);
@@ -967,7 +990,7 @@ llvm_compare_op (RuntimeOptimizer &rop, int opnum)
 
 // unary reduction ops (length, luminance, determinant (much more complicated...))
 void
-llvm_unary_reduction (RuntimeOptimizer &rop, int opnum)
+llvm_gen_unary_reduction (RuntimeOptimizer &rop, int opnum)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& dst  = *rop.opargsym (op, 0);
@@ -1039,7 +1062,7 @@ llvm_unary_reduction (RuntimeOptimizer &rop, int opnum)
 // dot. This is could easily be a more general f(Agg, Agg) -> Scalar,
 // but we don't seem to have any others.
 void
-llvm_dot_op (RuntimeOptimizer &rop, int opnum)
+llvm_gen_dot (RuntimeOptimizer &rop, int opnum)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& dst  = *rop.opargsym (op, 0);
@@ -1083,7 +1106,7 @@ llvm_dot_op (RuntimeOptimizer &rop, int opnum)
 
 // cross.
 void
-llvm_cross_op (RuntimeOptimizer &rop, int opnum)
+llvm_gen_cross (RuntimeOptimizer &rop, int opnum)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& dst  = *rop.opargsym (op, 0);
@@ -1131,7 +1154,7 @@ llvm_cross_op (RuntimeOptimizer &rop, int opnum)
 // that we need to then apply to the whole vector. TODO(boulos): Try
 // to reuse the length code maybe?
 void
-llvm_normalize_op (RuntimeOptimizer &rop, int opnum)
+llvm_gen_normalize (RuntimeOptimizer &rop, int opnum)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& dst  = *rop.opargsym (op, 0);
@@ -1191,9 +1214,12 @@ llvm_normalize_op (RuntimeOptimizer &rop, int opnum)
 
 
 void
-llvm_if_op (RuntimeOptimizer &rop, int opnum, const Symbol& cond)
+llvm_gen_if (RuntimeOptimizer &rop, int opnum)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& cond = *rop.opargsym (op, 0);
+    if (SkipSymbol(cond))
+        return;
     RuntimeOptimizer::BasicBlockMap& bb_map (rop.bb_map());
 
     // Load the condition variable
@@ -1219,9 +1245,12 @@ llvm_if_op (RuntimeOptimizer &rop, int opnum, const Symbol& cond)
 
 
 void
-llvm_loop_op (RuntimeOptimizer &rop, int opnum, const Symbol& cond)
+llvm_gen_loop_op (RuntimeOptimizer &rop, int opnum)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& cond = *rop.opargsym (op, 0);
+    if (SkipSymbol(cond))
+        return;
     RuntimeOptimizer::BasicBlockMap& bb_map (rop.bb_map());
 
     // Branch on the condition, to our blocks
@@ -1294,6 +1323,61 @@ RuntimeOptimizer::llvm_assign_initial_constant (const Symbol& sym)
         }
         storeLLVMValue (init_val, sym, i, 0);
     }
+}
+
+
+
+
+static std::map<ustring,OpLLVMer> llvm_generator_table;
+
+
+static void
+initialize_llvm_generator_table ()
+{
+    static spin_mutex table_mutex;
+    static bool table_initialized = false;
+    spin_lock lock (table_mutex);
+    if (table_initialized)
+        return;   // already initialized
+#define INIT2(name,func) llvm_generator_table[ustring(#name)] = func
+#define INIT(name) llvm_generator_table[ustring(#name)] = llvm_gen_##name;
+
+    INIT (assign);
+    INIT2 (add, llvm_gen_binary_op);
+    INIT2 (sub, llvm_gen_binary_op);
+    INIT2 (mul, llvm_gen_binary_op);
+    INIT2 (div, llvm_gen_binary_op);
+    INIT2 (mod, llvm_gen_binary_op);
+    INIT (dot);
+    INIT (cross);
+    INIT (normalize);
+    INIT (compref);
+    INIT2 (eq, llvm_gen_compare_op);
+    INIT2 (neq, llvm_gen_compare_op);
+    INIT2 (lt, llvm_gen_compare_op);
+    INIT2 (le, llvm_gen_compare_op);
+    INIT2 (gt, llvm_gen_compare_op);
+    INIT2 (ge, llvm_gen_compare_op);
+    INIT2 (neg, llvm_gen_unary_op);
+    INIT2 (abs, llvm_gen_unary_op);
+    INIT2 (fabs, llvm_gen_unary_op);
+    INIT2 (sqrt, llvm_gen_unary_op);
+    INIT2 (sin, llvm_gen_unary_op);
+    INIT2 (cos, llvm_gen_unary_op);
+    INIT2 (vector, llvm_gen_construct_aggregate);
+    INIT2 (color, llvm_gen_construct_aggregate);
+    INIT2 (length, llvm_gen_unary_reduction);
+    INIT2 (luminance, llvm_gen_unary_reduction);
+    INIT (if);
+    INIT2 (for, llvm_gen_loop_op);
+    INIT2 (while, llvm_gen_loop_op);
+    INIT2 (dowhile, llvm_gen_loop_op);
+    INIT (printf);
+
+#undef INIT
+#undef INIT2
+
+    table_initialized = true;
 }
 
 
@@ -1395,66 +1479,15 @@ RuntimeOptimizer::build_llvm_version ()
 
         //rop.shadingsys().info ("op%03zu: %s\n", i, op.opname().c_str());
 
-        if (op.opname() == op_add ||
-            op.opname() == op_sub ||
-            op.opname() == op_mul ||
-            op.opname() == op_div ||
-            op.opname() == op_mod) {
-            llvm_binary_op (*this, opnum);
-        } else if (op.opname() == op_dot) {
-            llvm_dot_op (*this, opnum);
-        } else if (op.opname() == op_cross) {
-            llvm_cross_op (*this, opnum);
-        } else if (op.opname() == op_lt ||
-                   op.opname() == op_le ||
-                   op.opname() == op_eq ||
-                   op.opname() == op_ge ||
-                   op.opname() == op_gt ||
-                   op.opname() == op_neq) {
-            llvm_compare_op (*this, opnum);
-        } else if (op.opname() == op_neg ||
-                   op.opname() == op_abs ||
-                   op.opname() == op_fabs ||
-                   op.opname() == op_sqrt ||
-                   op.opname() == op_sin ||
-                   op.opname() == op_cos) {
-            llvm_unary_op (*this, opnum);
-        } else if (op.opname() == op_normalize) {
-            llvm_normalize_op (*this, opnum);
-        } else if (op.opname() == op_length ||
-                   op.opname() == op_luminance) {
-            llvm_unary_reduction (*this, opnum);
-        } else if (op.opname() == op_printf) {
-            llvm_printf_op (*this, opnum);
-        } else if (op.opname() == op_assign) {
-            llvm_assign_op (*this, opnum);
-        } else if (op.opname() == op_compref) {
-            Symbol& dst = *opargsym (op, 0);
-            Symbol& src = *opargsym (op, 1);
-            Symbol& idx = *opargsym (op, 2);
-            if (SkipSymbol(dst) ||
-                SkipSymbol(src) ||
-                SkipSymbol(idx)) continue;
-            llvm_compref_op (*this, opnum, dst, src, idx);
-        } else if (op.opname() == op_vector ||
-                   op.opname() == op_color) {
-            llvm_construct_aggregate (*this, opnum);
-        } else if (op.opname() == op_if ||
-                   op.opname() == op_for ||
-                   op.opname() == op_while ||
-                   op.opname() == op_dowhile) {
-            Symbol& cond = *opargsym (op, 0);
-            if (SkipSymbol(cond)) continue;
-            if (op.opname() == op_if) {
-                llvm_if_op (*this, opnum, cond);
-            } else {
-                llvm_loop_op (*this, opnum, cond);
-            }
+        std::map<ustring,OpLLVMer>::const_iterator found;
+        found = llvm_generator_table.find (op.opname());
+        if (found != llvm_generator_table.end()) {
+            (*found->second) (*this, opnum);
         } else if (op.opname() == op_nop ||
                    op.opname() == op_end) {
             // Skip this op, it does nothing...
         } else {
-            m_shadingsys.warning ("LLVMOSL: Unsupported op %s\n", op.opname().c_str());
+            m_shadingsys.error ("LLVMOSL: Unsupported op %s\n", op.opname().c_str());
             return NULL;
         }
     }
@@ -1518,6 +1551,8 @@ ShadingSystemImpl::SetupLLVM ()
     printf_params.push_back (llvm::Type::getInt8PtrTy(*llvm_context()));
     llvm::FunctionType* printf_type = llvm::FunctionType::get (llvm::Type::getVoidTy(*llvm_context()), printf_params, true /* varargs */);
     m_llvm_module->getOrInsertFunction ("llvm_osl_printf", printf_type);
+
+    initialize_llvm_generator_table ();
 }
 
 
