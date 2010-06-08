@@ -240,9 +240,22 @@ public:
     BasicBlockMap &bb_map () { return m_bb_map; }
     llvm::IRBuilder<> &builder () { return *m_builder; }
 
-    llvm::Value *loadLLVMValue (const Symbol& sym, int component, int deriv);
-    void storeLLVMValue (llvm::Value* new_val, const Symbol& sym,
-                         int component, int deriv);
+    /// Return the llvm::Value* corresponding to the given symbol, with
+    /// optional component (x=0, y=1, z=2) and/or derivative (0=value,
+    /// 1=dx, 2=dy).  If the component >0 and it's a scalar, return the
+    /// scalar -- this allows automatic casting to triples.  If deriv >0
+    /// and the symbol doesn't have derivatives, return 0 for the
+    /// derivative.  Finally, cast controls conversion as needed of
+    /// int<->float (no conversion is performed if cast is the default
+    /// of UNKNOWN).  Returns NULL upon failure.
+    llvm::Value *loadLLVMValue (const Symbol& sym, int component=0, int deriv=0,
+                                TypeDesc cast=TypeDesc::UNKNOWN);
+
+    /// Store new_val into given symbol, with optional component (x=0,
+    /// y=1, z=2) and/or derivative (0=value, 1=dx, 2=dy).  Returns true
+    /// if ok, false upon failure.
+    bool storeLLVMValue (llvm::Value* new_val, const Symbol& sym,
+                         int component=0, int deriv=0);
     llvm::Value *LLVMLoadShaderGlobal (const Symbol& sym, int component,
                                        int deriv);
     llvm::Value *LLVMStoreShaderGlobal (llvm::Value* val, const Symbol& sym,
@@ -257,6 +270,18 @@ public:
     const llvm::StructType *getShaderGlobalType ();
 
     llvm::Value *sg_ptr () const { return m_llvm_shaderglobals_ptr; }
+
+    /// Return an llvm::Value holding the given floating point constant.
+    ///
+    llvm::Value *llvm_constant (float f);
+
+    /// Return an llvm::Value holding the given integer constant.
+    ///
+    llvm::Value *llvm_constant (int i);
+
+    /// Generate LLVM code to zero out the derivatives of sym.
+    ///
+    void llvm_zero_derivs (Symbol &sym);
 
     const llvm::Type *llvm_type_float() { return m_llvm_type_float; }
     const llvm::Type *llvm_type_int() { return m_llvm_type_int; }

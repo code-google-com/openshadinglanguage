@@ -90,15 +90,15 @@ static ustring op_while("while");
 
 /// Macro that defines the arguments to LLVM IR generating routines
 ///
-#define LLVM_IR_GENERATOR_ARGS     RuntimeOptimizer &rop, int opnum
+#define LLVMGEN_ARGS     RuntimeOptimizer &rop, int opnum
 
-/// Macro that defines the full declaration of a shadeop constant-folder.
+/// Macro that defines the full declaration of an LLVM generator.
 /// 
-#define DECL_LLVMER(name)  void name (LLVM_IR_GENERATOR_ARGS)
+#define LLVMGEN(name)  bool name (LLVMGEN_ARGS)
 
 /// Function pointer to an LLVM IR-generating routine
 ///
-typedef void (*OpLLVMer) (LLVM_IR_GENERATOR_ARGS);
+typedef bool (*OpLLVMGen) (LLVMGEN_ARGS);
 
 
 
@@ -246,6 +246,38 @@ SkipSymbol (const Symbol& s)
 
 
 
+llvm::Value *
+RuntimeOptimizer::llvm_constant (float f)
+{
+    return llvm::ConstantFP::get (llvm_context(), llvm::APFloat(f));
+}
+
+
+
+llvm::Value *
+RuntimeOptimizer::llvm_constant (int i)
+{
+    return llvm::ConstantInt::get (llvm_context(), llvm::APInt(32,i));
+}
+
+
+
+void
+RuntimeOptimizer::llvm_zero_derivs (Symbol &sym)
+{
+    if (sym.has_derivs() &&
+            (sym.typespec().is_float() || sym.typespec().is_triple())) {
+        int num_components = sym.typespec().simpletype().aggregate;
+        llvm::Value *zero = llvm_constant (0.0f);
+        for (int i = 0;  i < num_components;  ++i)
+            storeLLVMValue (zero, sym, i, 1);  // clear dx
+        for (int i = 0;  i < num_components;  ++i)
+            storeLLVMValue (zero, sym, i, 2);  // clear dy
+    }
+}
+
+
+
 extern "C" void
 llvm_osl_printf (const char* format_str, ...)
 {
@@ -377,26 +409,17 @@ RuntimeOptimizer::LoadParam (const Symbol& sym, int component, int deriv,
 
 
 
-/// Return the llvm::Value* corresponding to the given symbol, with
-/// optional component (x=0, y=1, z=2) and/or derivative (0=value, 1=dx,
-/// 2=dy).  If the component >0 and it's a scalar, return the scalar --
-/// this allows automatic casting to triples.  If deriv >0 and the symbol
-/// doesn't have derivatives, return 0 for the derivative.
 llvm::Value *
 RuntimeOptimizer::loadLLVMValue (const Symbol& sym, int component,
-                                 int deriv)
+                                 int deriv, TypeDesc cast)
 {
-    // Regardless of what object this is, if it doesn't have derivs but
-    // we're asking for them, return 0
     bool has_derivs = sym.has_derivs();
     if (!has_derivs && deriv != 0) {
-        // Asking for the value of our derivative, but we don't have one. Return 0.
-        if (sym.typespec().is_floatbased()) {
-            return llvm::ConstantFP::get (llvm_context(), llvm::APFloat(0.f));
-        } else {
-            ASSERT (0 && "int values don't have derivatives");
-            return llvm::ConstantInt::get (llvm_context(), llvm::APInt(32, 0));
-        }
+        // Regardless of what object this is, if it doesn't have derivs but
+        // we're asking for them, return 0.  Integers don't have derivs
+        // so we don't need to worry about that case.
+        ASSERT (sym.typespec().is_floatbased() && cast != TypeDesc::TypeInt);
+        return llvm::ConstantFP::get (llvm_context(), llvm::APFloat(0.f));
     }
 
     // Handle Globals (and eventually Params) separately since they have
@@ -409,37 +432,41 @@ RuntimeOptimizer::loadLLVMValue (const Symbol& sym, int component,
     int real_component = std::min(num_elements, component);
     int index = real_component + deriv * num_elements;
     //shadingsys().info ("Looking up index %d (comp_%d -> realcomp_%d +  %d * %d) for symbol '%s'\n", index, component, real_component, deriv, num_elements, sym.mangled().c_str());
-    llvm::Value* aggregate = getLLVMSymbolBase (sym);
-    if (!aggregate) return 0;
+    llvm::Value* result = getLLVMSymbolBase (sym);
+    if (!result)
+        return 0;  // Error
     if (num_elements == 1 && !has_derivs) {
         // The thing is just a scalar
-        return builder().CreateLoad (aggregate);
+        result = builder().CreateLoad (result);
     } else {
-#if 1
-        llvm::Value* ptr = builder().CreateConstGEP2_32 (aggregate, 0, index);
-        //outs() << "aggregate = " << *aggregate << " and GEP = " << *ptr << "\n";
-        return builder().CreateLoad (ptr);
-#else
-        return builder().CreateExtractValue (aggregate, index);
-#endif
+        llvm::Value* ptr = builder().CreateConstGEP2_32 (result, 0, index);
+        result = builder().CreateLoad (ptr);
     }
+
+    // Handle int<->float type casting
+    if (sym.typespec().is_floatbased() && cast == TypeDesc::TypeInt)
+        result = llvm_int_to_float (result);
+    else if (sym.typespec().is_int() && cast == TypeDesc::TypeFloat)
+        result = llvm_float_to_int (result);
+
+    return result;
 }
 
 
 
-void
+bool
 RuntimeOptimizer::storeLLVMValue (llvm::Value* new_val, const Symbol& sym,
                                   int component, int deriv)
 {
     bool has_derivs = sym.has_derivs();
     if (!has_derivs && deriv != 0) {
         shadingsys().error ("Tried to store to symbol '%s', component %d, deriv_idx %d but doesn't have derivatives\n", sym.name().c_str(), component, deriv);
-        return;
+        return false;
     }
 
     llvm::Value* aggregate = getLLVMSymbolBase (sym);
     if (!aggregate)
-        return;
+        return false;
 
     int num_elements = sym.typespec().simpletype().aggregate;
     if (num_elements == 1 && !has_derivs) {
@@ -447,20 +474,15 @@ RuntimeOptimizer::storeLLVMValue (llvm::Value* new_val, const Symbol& sym,
     } else {
         int real_component = std::min(num_elements, component);
         int index = real_component + deriv * num_elements;
-#if 1
-        //shadingsys().info ("Storing value into index %d (comp_%d -> realcomp_%d +  %d * %d) for symbol '%s'\n", index, component, real_component, deriv, num_elements, sym.mangled().c_str());
         llvm::Value* ptr = builder().CreateConstGEP2_32 (aggregate, 0, index);
         builder().CreateStore (new_val, ptr);
-#else
-        builder().CreateInsertValue (aggregate, new_val, index);
-#endif
     }
+    return true;
 }
 
 
 
-void
-llvm_gen_printf (RuntimeOptimizer &rop, int opnum)
+LLVMGEN (llvm_gen_printf)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     llvm::Function *llvm_printf_func = rop.llvm_module()->getFunction("llvm_osl_printf");
@@ -470,7 +492,7 @@ llvm_gen_printf (RuntimeOptimizer &rop, int opnum)
     Symbol& format_sym = *rop.opargsym (op, 0);
     if (!format_sym.is_constant()) {
         rop.shadingsys().warning ("printf must currently have constant format\n");
-        return;
+        return false;
     }
 
     // We're going to need to adjust the format string as we go, but I'd
@@ -500,7 +522,7 @@ llvm_gen_printf (RuntimeOptimizer &rop, int opnum)
             ++format; // Also eat the format char
             if (arg >= op.nargs()) {
                 rop.shadingsys().error ("Mismatch between format string and arguments");
-                return;
+                return false;
             }
 
             std::string ourformat (oldfmt, format);  // straddle the format
@@ -508,7 +530,7 @@ llvm_gen_printf (RuntimeOptimizer &rop, int opnum)
             Symbol& sym (*rop.opargsym (op, 1 + arg));
             if (SkipSymbol(sym)) {
                 rop.shadingsys().warning ("symbol type for '%s' unsupported for printf\n", sym.mangled().c_str());
-                return;
+                return false;
             }
             TypeDesc simpletype (sym.typespec().simpletype());
             int num_components = simpletype.numelements() * simpletype.aggregate;
@@ -556,6 +578,7 @@ llvm_gen_printf (RuntimeOptimizer &rop, int opnum)
     // Get llvm_osl_printf from the module
     rop.builder().CreateCall(llvm_printf_func, call_args.begin(), call_args.end());
     //outs() << "printf_call = " << *printf_call << "\n";
+    return true;
 }
 
 
@@ -581,8 +604,7 @@ RuntimeOptimizer::llvm_int_to_float (llvm::Value* ival)
 
 
 // Simple (pointwise) binary ops (+-*/)
-void
-llvm_gen_binary_op (RuntimeOptimizer &rop, int opnum)
+LLVMGEN (llvm_gen_binary_op)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
 
@@ -592,7 +614,7 @@ llvm_gen_binary_op (RuntimeOptimizer &rop, int opnum)
     if (SkipSymbol(dst) ||
         SkipSymbol(src1) ||
         SkipSymbol(src2))
-        return;
+        return false;
 
     bool dst_derivs = dst.has_derivs();
     int num_components = dst.typespec().simpletype().aggregate;
@@ -606,8 +628,8 @@ llvm_gen_binary_op (RuntimeOptimizer &rop, int opnum)
         llvm::Value* src1_load = rop.loadLLVMValue (src1, i, 0);
         llvm::Value* src2_load = rop.loadLLVMValue (src2, i, 0);
 
-        if (!src1_load) return;
-        if (!src2_load) return;
+        if (!src1_load || !src2_load)
+            return false;
 
         llvm::Value* src1_val = src1_load;
         llvm::Value* src2_val = src2_load;
@@ -663,21 +685,21 @@ llvm_gen_binary_op (RuntimeOptimizer &rop, int opnum)
             rop.shadingsys().info ("punting on derivatives for now\n");
         }
     }
+    return true;
 }
 
 
 
 // Simple (pointwise) unary ops (Neg, Abs, Sqrt, Ceil, Floor, ..., Log2,
 // Log10, Erf, Erfc, IsNan/IsInf/IsFinite)
-void
-llvm_gen_unary_op (RuntimeOptimizer &rop, int opnum)
+LLVMGEN (llvm_gen_unary_op)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& dst  = *rop.opargsym (op, 0);
     Symbol& src = *rop.opargsym (op, 1);
     if (SkipSymbol(dst) ||
         SkipSymbol(src))
-        return;
+        return false;
 
     bool dst_derivs = dst.has_derivs();
     int num_components = dst.typespec().simpletype().aggregate;
@@ -689,7 +711,7 @@ llvm_gen_unary_op (RuntimeOptimizer &rop, int opnum)
     for (int i = 0; i < num_components; i++) {
         // Get src1/2 component i
         llvm::Value* src_load = rop.loadLLVMValue (src, i, 0);
-        if (!src_load) return;
+        if (!src_load) return false;
 
         llvm::Value* src_val = src_load;
 
@@ -709,7 +731,7 @@ llvm_gen_unary_op (RuntimeOptimizer &rop, int opnum)
                 // neg_version = -x
                 // result = (x < 0) ? neg_version : x
                 llvm::Value* negated = rop.builder().CreateNeg(src_val);
-                llvm::Value* cond = rop.builder().CreateICmpSLT(src_val, llvm::ConstantInt::get(rop.llvm_type_int(), 0));
+                llvm::Value* cond = rop.builder().CreateICmpSLT(src_val, rop.llvm_constant(0));
                 result = rop.builder().CreateSelect(cond, negated, src_val);
             }
         } else if (opname == op_sqrt && src_float) {
@@ -742,57 +764,71 @@ llvm_gen_unary_op (RuntimeOptimizer &rop, int opnum)
             // FIXME!!
         }
     }
+    return true;
 }
 
 
 
 // Simple assignment
-void
-llvm_gen_assign (RuntimeOptimizer &rop, int opnum)
+LLVMGEN (llvm_gen_assign)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
-    Symbol& dst  = *rop.opargsym (op, 0);
-    Symbol& src = *rop.opargsym (op, 1);
-    if (SkipSymbol(dst) ||
-        SkipSymbol(src))
-        return;
+    Symbol& Result (*rop.opargsym (op, 0));
+    Symbol& Src (*rop.opargsym (op, 1));
+    ASSERT (! Result.typespec().is_structure() &&
+            ! Result.typespec().is_array());
+    ASSERT (! Src.typespec().is_structure() &&
+            ! Src.typespec().is_array());
 
-    bool dst_derivs = dst.has_derivs();
-    int num_components = dst.typespec().simpletype().aggregate;
+    if (Result.typespec().is_closure() || Src.typespec().is_closure()) {
+        ASSERT (0 && "llvm_gen_assign doesn't handle closures yet");
+        return false;
+    }
+    
+    if (Result.typespec().is_matrix() && Src.typespec().is_int_or_float()) {
+        // Handle m=f, m=i separately
+        llvm::Value *src = rop.loadLLVMValue (Src, 0, 0, TypeDesc::FLOAT /*cast*/);
+        // m=f sets the diagonal components to f, the others to zero
+        llvm::Value *zero = rop.llvm_constant (0.0f);
+        for (int i = 0;  i < 4;  ++i)
+            for (int j = 0;  j < 4;  ++j)
+                rop.storeLLVMValue (i==j ? src : zero, Result, i*4+j);
+        ASSERT (! Result.has_derivs() && "matrices shouldn't have derivs");
+        return true;
+    }
 
-    bool dst_float = dst.typespec().is_floatbased();
-    bool src_float = src.typespec().is_floatbased();
+    // The following code handles f=f, f=i, v=v, v=f, v=i, m=m.
+    // Remember that loadLLVMValue will automatically convert scalar->triple.
+    int num_components = Result.typespec().simpletype().aggregate;
+    for (int i = 0; i < num_components; ++i) {
+        llvm::Value* src_val = rop.loadLLVMValue (Src, i, 0);
+        if (!src_val)
+            return false;
+        rop.storeLLVMValue (src_val, Result, i, 0);
+    }
 
-    //rop.shadingsys().info ("assigning '%s' (mangled = '%s') to '%s' (mangled = '%s')\n", src.name().c_str(), src.mangled().c_str(), dst.name().c_str(), dst.mangled().c_str());
-
-    for (int i = 0; i < num_components; i++) {
-        // Get src component i
-        llvm::Value* src_val = rop.loadLLVMValue (src, i, 0);
-        if (!src_val) return;
-
-        // Perform the assignment
-        if (dst_float && !src_float) {
-            // need int -> float
-            src_val = rop.builder().CreateSIToFP(src_val, rop.llvm_type_float());
-        } else if (!dst_float && src_float) {
-            // float -> int
-            src_val = rop.builder().CreateFPToSI(src_val, rop.llvm_type_int());
-        }
-        rop.storeLLVMValue (src_val, dst, i, 0);
-
-        if (dst_derivs) {
-            // mul results in <a * b, a * b_dx + b * a_dx, a * b_dy + b * a_dy>
-            rop.shadingsys().info ("punting on derivatives for now\n");
-            // FIXME!!!
+    // Handle derivatives
+    if (Result.has_derivs()) {
+        if (Src.has_derivs()) {
+            // src and result both have derivs -- copy them
+            for (int d = 1;  d <= 2;  ++d) {
+                for (int i = 0; i < num_components; ++i) {
+                    llvm::Value* val = rop.loadLLVMValue (Src, i, d);
+                    rop.storeLLVMValue (val, Result, i, d);
+                }
+            }
+        } else {
+            // Result wants derivs but src didn't have them -- zero them
+            rop.llvm_zero_derivs (Result);
         }
     }
+    return true;
 }
 
 
 
 // Component reference
-void
-llvm_gen_compref (RuntimeOptimizer &rop, int opnum)
+LLVMGEN (llvm_gen_compref)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& dst = *rop.opargsym (op, 0);
@@ -801,7 +837,7 @@ llvm_gen_compref (RuntimeOptimizer &rop, int opnum)
     if (SkipSymbol(dst) ||
         SkipSymbol(src) ||
         SkipSymbol(index))
-        return;
+        return false;
 
     bool dst_derivs = dst.has_derivs();
     int num_components = src.typespec().simpletype().aggregate;
@@ -813,16 +849,16 @@ llvm_gen_compref (RuntimeOptimizer &rop, int opnum)
     if (!index.is_constant()) {
         rop.shadingsys().info ("punting on non-constant index for now. annoying\n");
         // FIXME
-        return;
+        return false;
     }
     int const_index = *((int*)index.data());
     if (const_index < 0 || const_index >= num_components) {
         rop.shadingsys().warning ("index out of range for object (idx = %d, num_comp = %d)\n", const_index, num_components);
-        return;
+        return false;
     }
 
     llvm::Value* src_val = rop.loadLLVMValue (src, const_index, 0);
-    if (!src_val) return;
+    if (!src_val) return false;
 
     // Perform the assignment
     if (dst_float && !src_float) {
@@ -841,20 +877,20 @@ llvm_gen_compref (RuntimeOptimizer &rop, int opnum)
         rop.shadingsys().info ("punting on derivatives for now\n");
         // FIXME
     }
+    return true;
 }
 
 
 
 // Simple aggregate constructor (no conversion)
-void
-llvm_gen_construct_aggregate (RuntimeOptimizer &rop, int opnum)
+LLVMGEN (llvm_gen_construct_aggregate)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& dst = *rop.opargsym (op, 0);
     Symbol& arg1 = *rop.opargsym (op, 1);
     if (arg1.typespec().is_string()) {
         // Using a string to say what space we want, punt for now.
-        return;  // FIXME
+        return false;  // FIXME
     }
     // Otherwise, the args are just data.
     const Symbol* src_syms[16];
@@ -871,7 +907,7 @@ llvm_gen_construct_aggregate (RuntimeOptimizer &rop, int opnum)
         bool src_float = src.typespec().is_floatbased();
         // Get src component 0 (it should be a scalar)
         llvm::Value* src_val = rop.loadLLVMValue (src, 0, 0);
-        if (!src_val) return;
+        if (!src_val) return false;
 
         // Perform the assignment
         if (dst_float && !src_float) {
@@ -889,14 +925,14 @@ llvm_gen_construct_aggregate (RuntimeOptimizer &rop, int opnum)
             // FIXME
         }
     }
+    return true;
 }
 
 
 
 // Comparison ops (though other binary -> scalar ops like dot might end
 // up being similar)
-void
-llvm_gen_compare_op (RuntimeOptimizer &rop, int opnum)
+LLVMGEN (llvm_gen_compare_op)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& dst  = *rop.opargsym (op, 0);
@@ -905,7 +941,7 @@ llvm_gen_compare_op (RuntimeOptimizer &rop, int opnum)
     if (SkipSymbol(dst) ||
         SkipSymbol(src1) ||
         SkipSymbol(src2))
-        return;
+        return false;
 
     bool dst_derivs = dst.has_derivs();
     int num_components = dst.typespec().simpletype().aggregate;
@@ -920,8 +956,8 @@ llvm_gen_compare_op (RuntimeOptimizer &rop, int opnum)
         llvm::Value* src1_load = rop.loadLLVMValue (src1, i, 0);
         llvm::Value* src2_load = rop.loadLLVMValue (src2, i, 0);
 
-        if (!src1_load) return;
-        if (!src2_load) return;
+        if (!src1_load) return false;
+        if (!src2_load) return false;
 
         llvm::Value* src1_val = src1_load;
         llvm::Value* src2_val = src2_load;
@@ -994,20 +1030,20 @@ llvm_gen_compare_op (RuntimeOptimizer &rop, int opnum)
             // FIXME
         }
     }
+    return true;
 }
 
 
 
 // unary reduction ops (length, luminance, determinant (much more complicated...))
-void
-llvm_gen_unary_reduction (RuntimeOptimizer &rop, int opnum)
+LLVMGEN (llvm_gen_unary_reduction)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& dst  = *rop.opargsym (op, 0);
     Symbol& src = *rop.opargsym (op, 1);
     if (SkipSymbol(dst) ||
         SkipSymbol(src))
-        return;
+        return false;
 
     bool dst_derivs = dst.has_derivs();
     // Loop over the source
@@ -1020,7 +1056,7 @@ llvm_gen_unary_reduction (RuntimeOptimizer &rop, int opnum)
         // Get src1/2 component i
         llvm::Value* src_load = rop.loadLLVMValue (src, i, 0);
 
-        if (!src_load) return;
+        if (!src_load) return false;
 
         llvm::Value* src_val = src_load;
 
@@ -1065,14 +1101,14 @@ llvm_gen_unary_reduction (RuntimeOptimizer &rop, int opnum)
             // FIXME
         }
     }
+    return true;
 }
 
 
 
 // dot. This is could easily be a more general f(Agg, Agg) -> Scalar,
 // but we don't seem to have any others.
-void
-llvm_gen_dot (RuntimeOptimizer &rop, int opnum)
+LLVMGEN (llvm_gen_dot)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& dst  = *rop.opargsym (op, 0);
@@ -1081,7 +1117,7 @@ llvm_gen_dot (RuntimeOptimizer &rop, int opnum)
     if (SkipSymbol(dst) ||
         SkipSymbol(src1) ||
         SkipSymbol(src2))
-        return;
+        return false;
 
     bool dst_derivs = dst.has_derivs();
     // Loop over the sources
@@ -1094,7 +1130,7 @@ llvm_gen_dot (RuntimeOptimizer &rop, int opnum)
         llvm::Value* src1_load = rop.loadLLVMValue (src1, i, 0);
         llvm::Value* src2_load = rop.loadLLVMValue (src2, i, 0);
 
-        if (!src1_load || !src2_load) return;
+        if (!src1_load || !src2_load) return false;
 
         llvm::Value* result = rop.builder().CreateFMul(src1_load, src2_load);
 
@@ -1110,13 +1146,13 @@ llvm_gen_dot (RuntimeOptimizer &rop, int opnum)
         rop.shadingsys().info ("punting on derivatives for now\n");
         // FIXME
     }
+    return true;
 }
 
 
 
 // cross.
-void
-llvm_gen_cross (RuntimeOptimizer &rop, int opnum)
+LLVMGEN (llvm_gen_cross)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& dst  = *rop.opargsym (op, 0);
@@ -1125,7 +1161,7 @@ llvm_gen_cross (RuntimeOptimizer &rop, int opnum)
     if (SkipSymbol(dst) ||
         SkipSymbol(src1) ||
         SkipSymbol(src2))
-        return;
+        return false;
 
     bool dst_derivs = dst.has_derivs();
     int num_components = dst.typespec().simpletype().aggregate;
@@ -1144,7 +1180,7 @@ llvm_gen_cross (RuntimeOptimizer &rop, int opnum)
         llvm::Value* src2_load0 = rop.loadLLVMValue (src2, src2_idx0[i], 0);
         llvm::Value* src2_load1 = rop.loadLLVMValue (src2, src2_idx1[i], 0);
 
-        if (!src1_load0 || !src1_load1 || !src2_load0 || !src2_load1) return;
+        if (!src1_load0 || !src1_load1 || !src2_load0 || !src2_load1) return false;
 
         llvm::Value* prod0 = rop.builder().CreateFMul(src1_load0, src2_load0);
         llvm::Value* prod1 = rop.builder().CreateFMul(src1_load1, src2_load1);
@@ -1156,6 +1192,7 @@ llvm_gen_cross (RuntimeOptimizer &rop, int opnum)
             // FIXME
         }
     }
+    return true;
 }
 
 
@@ -1163,15 +1200,14 @@ llvm_gen_cross (RuntimeOptimizer &rop, int opnum)
 // normalize. This is sort of like unary with a side product (length)
 // that we need to then apply to the whole vector. TODO(boulos): Try
 // to reuse the length code maybe?
-void
-llvm_gen_normalize (RuntimeOptimizer &rop, int opnum)
+LLVMGEN (llvm_gen_normalize)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& dst  = *rop.opargsym (op, 0);
     Symbol& src = *rop.opargsym (op, 1);
     if (SkipSymbol(dst) ||
         SkipSymbol(src))
-        return;
+        return false;
 
     bool dst_derivs = dst.has_derivs();
     int num_components = dst.typespec().simpletype().aggregate;
@@ -1182,7 +1218,7 @@ llvm_gen_normalize (RuntimeOptimizer &rop, int opnum)
         // Get src component i
         llvm::Value* src_load = rop.loadLLVMValue (src, i, 0);
 
-        if (!src_load) return;
+        if (!src_load) return false;
 
         llvm::Value* src_val = src_load;
 
@@ -1206,7 +1242,7 @@ llvm_gen_normalize (RuntimeOptimizer &rop, int opnum)
         // Get src component i
         llvm::Value* src_load = rop.loadLLVMValue (src, i, 0);
 
-        if (!src_load) return;
+        if (!src_load) return false;
 
         llvm::Value* src_val = src_load;
 
@@ -1219,17 +1255,17 @@ llvm_gen_normalize (RuntimeOptimizer &rop, int opnum)
             // FIXME
         }
     }
+    return true;
 }
 
 
 
-void
-llvm_gen_if (RuntimeOptimizer &rop, int opnum)
+LLVMGEN (llvm_gen_if)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& cond = *rop.opargsym (op, 0);
     if (SkipSymbol(cond))
-        return;
+        return false;
     RuntimeOptimizer::BasicBlockMap& bb_map (rop.bb_map());
 
     // Load the condition variable
@@ -1250,17 +1286,17 @@ llvm_gen_if (RuntimeOptimizer &rop, int opnum)
         rop.builder().SetInsertPoint (else_block);
         rop.builder().CreateBr (after_block);
     }
+    return true;
 }
 
 
 
-void
-llvm_gen_loop_op (RuntimeOptimizer &rop, int opnum)
+LLVMGEN (llvm_gen_loop_op)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& cond = *rop.opargsym (op, 0);
     if (SkipSymbol(cond))
-        return;
+        return false;
     RuntimeOptimizer::BasicBlockMap& bb_map (rop.bb_map());
 
     // Branch on the condition, to our blocks
@@ -1307,6 +1343,7 @@ llvm_gen_loop_op (RuntimeOptimizer &rop, int opnum)
         rop.builder().SetInsertPoint(body_block);
         rop.builder().CreateBr(cond_block);
     }
+    return true;
 }
 
 
@@ -1322,15 +1359,10 @@ RuntimeOptimizer::llvm_assign_initial_constant (const Symbol& sym)
         // Setup initial store
         llvm::Value* init_val = 0;
         // shadingsys.info ("Assigning initial value for symbol '%s' = ", sym.mangled().c_str());
-        if (is_float) {
-            float fval = ((float*)sym.data())[i];
-            init_val = llvm::ConstantFP::get(llvm_context(), llvm::APFloat(fval));
-            // shadingsys.info ("%f\n", fval);
-        } else {
-            int ival = ((int*)sym.data())[i];
-            init_val = llvm::ConstantInt::get(llvm_context(), llvm::APInt(32, ival));
-            // shadingsys.info ("%d\n", ival);
-        }
+        if (is_float)
+            init_val = llvm_constant (((float*)sym.data())[i]);
+        else
+            init_val = llvm_constant (((int*)sym.data())[i]);
         storeLLVMValue (init_val, sym, i, 0);
     }
 }
@@ -1338,7 +1370,7 @@ RuntimeOptimizer::llvm_assign_initial_constant (const Symbol& sym)
 
 
 
-static std::map<ustring,OpLLVMer> llvm_generator_table;
+static std::map<ustring,OpLLVMGen> llvm_generator_table;
 
 
 static void
@@ -1461,10 +1493,12 @@ RuntimeOptimizer::build_llvm_version ()
 
         //rop.shadingsys().info ("op%03zu: %s\n", i, op.opname().c_str());
 
-        std::map<ustring,OpLLVMer>::const_iterator found;
+        std::map<ustring,OpLLVMGen>::const_iterator found;
         found = llvm_generator_table.find (op.opname());
         if (found != llvm_generator_table.end()) {
-            (*found->second) (*this, opnum);
+            bool ok = (*found->second) (*this, opnum);
+            if (! ok)
+                return NULL;
         } else if (op.opname() == op_nop ||
                    op.opname() == op_end) {
             // Skip this op, it does nothing...
