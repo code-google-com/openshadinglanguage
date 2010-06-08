@@ -34,7 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 using namespace OSL;
 using namespace OSL::pvt;
-using namespace llvm;
 
 #ifdef OSL_NAMESPACE
 namespace OSL_NAMESPACE {
@@ -107,21 +106,19 @@ typedef void (*OpLLVMer) (LLVM_IR_GENERATOR_ARGS);
 const llvm::StructType *
 RuntimeOptimizer::getShaderGlobalType ()
 {
-    std::vector<const Type*> vec3_types(3, Type::getFloatTy(llvm_context()));
-    const StructType* vec3_type = StructType::get(llvm_context(), vec3_types);
-    const Type* float_type = Type::getFloatTy(llvm_context());
+    std::vector<const llvm::Type*> vec3_types(3, llvm_type_float());
+    const llvm::StructType* vec3_type = llvm::StructType::get(llvm_context(), vec3_types);
     // NOTE(boulos): Bool is a C++ concept that maps to int in C.
-    const Type* bool_type = Type::getInt32Ty(llvm_context());
-    const PointerType* void_ptr_type = Type::getInt8PtrTy(llvm_context());
+    const llvm::Type* bool_type = llvm_type_int();
 
-    std::vector<const Type*> sg_types;
+    std::vector<const llvm::Type*> sg_types;
     // P, dPdx, dPdy, I, dIdx, dIdy, N, Ng
     for (int i = 0; i < 8; i++) {
         sg_types.push_back(vec3_type);
     }
     // u, v, dudx, dudy, dvdx, dvdy
     for (int i = 0; i < 6; i++) {
-        sg_types.push_back(float_type);
+        sg_types.push_back(llvm_type_float());
     }
     // dPdu, dPdv
     for (int i = 0; i < 2; i++) {
@@ -129,7 +126,7 @@ RuntimeOptimizer::getShaderGlobalType ()
     }
     // time, dtime
     for (int i = 0; i < 2; i++) {
-        sg_types.push_back(float_type);
+        sg_types.push_back(llvm_type_float());
     }
     // dPdtime, Ps, dPsdx, dPdsy
     for (int i = 0; i < 4; i++) {
@@ -137,26 +134,28 @@ RuntimeOptimizer::getShaderGlobalType ()
     }
     // void* renderstate, object2common, shader2common
     for (int i = 0; i < 3; i++) {
-        sg_types.push_back(void_ptr_type);
+        sg_types.push_back(llvm_type_void_ptr());
     }
     // ClosureColor* (treat as void for now?)
     for (int i = 0; i < 1; i++) {
-        sg_types.push_back(void_ptr_type);
+        sg_types.push_back(llvm_type_void_ptr());
     }
     // surfacearea
     for (int i = 0; i < 1; i++) {
-        sg_types.push_back(float_type);
+        sg_types.push_back(llvm_type_float());
     }
     // iscameraray, isshadowray, flipHandedness
     for (int i = 0; i < 3; i++) {
         sg_types.push_back(bool_type);
     }
 
-    return StructType::get (llvm_context(), sg_types);
+    return llvm::StructType::get (llvm_context(), sg_types);
 }
 
 
 
+/// Convert the name of a global (and its derivative index) into the
+/// field number of the ShaderGlobals struct.
 static int
 ShaderGlobalNameToIndex (ustring name, int deriv)
 {
@@ -260,6 +259,9 @@ llvm_osl_printf (const char* format_str, ...)
 
 
 
+/// Given the OSL symbol, return the llvm::Value* corresponding to the
+/// start of that symbol (first element, first component, and just the
+/// plain value if it has derivatives).
 llvm::Value *
 RuntimeOptimizer::getLLVMSymbolBase (const Symbol &sym)
 {
@@ -289,16 +291,16 @@ RuntimeOptimizer::getOrAllocateLLVMSymbol (const Symbol& sym,
         bool is_float = sym.typespec().is_floatbased();
         int num_components = sym.typespec().simpletype().aggregate;
         int total_size = num_components * (has_derivs ? 3 : 1);
-        IRBuilder<> tmp_builder (&f->getEntryBlock(), f->getEntryBlock().begin());
+        llvm::IRBuilder<> tmp_builder (&f->getEntryBlock(), f->getEntryBlock().begin());
         //shadingsys().info ("Making a type with %d %ss for symbol '%s'\n", total_size, (is_float) ? "float" : "int", mangled_name.c_str());
         llvm::AllocaInst* allocation = 0;
         if (total_size == 1) {
-            ConstantInt* type_len = ConstantInt::get(llvm_context(), APInt(32, total_size));
-            allocation = tmp_builder.CreateAlloca((is_float) ? Type::getFloatTy(llvm_context()) : Type::getInt32Ty(llvm_context()), type_len, mangled_name.c_str());
+            llvm::ConstantInt* type_len = llvm::ConstantInt::get(llvm_context(), llvm::APInt(32, total_size));
+            allocation = tmp_builder.CreateAlloca((is_float) ? llvm_type_float() : llvm_type_int(), type_len, mangled_name.c_str());
         } else {
-            std::vector<const Type*> types(total_size, (is_float) ? Type::getFloatTy(llvm_context()) : Type::getInt32Ty(llvm_context()));
-            StructType* struct_type = StructType::get(llvm_context(), types);
-            ConstantInt* num_structs = ConstantInt::get(llvm_context(), APInt(32, 1));
+            std::vector<const llvm::Type*> types(total_size, (is_float) ? llvm_type_float() : llvm_type_int());
+            llvm::StructType* struct_type = llvm::StructType::get(llvm_context(), types);
+            llvm::ConstantInt* num_structs = llvm::ConstantInt::get(llvm_context(), llvm::APInt(32, 1));
             allocation = tmp_builder.CreateAlloca(struct_type, num_structs, mangled_name.c_str());
         }
 
@@ -375,18 +377,25 @@ RuntimeOptimizer::LoadParam (const Symbol& sym, int component, int deriv,
 
 
 
+/// Return the llvm::Value* corresponding to the given symbol, with
+/// optional component (x=0, y=1, z=2) and/or derivative (0=value, 1=dx,
+/// 2=dy).  If the component >0 and it's a scalar, return the scalar --
+/// this allows automatic casting to triples.  If deriv >0 and the symbol
+/// doesn't have derivatives, return 0 for the derivative.
 llvm::Value *
 RuntimeOptimizer::loadLLVMValue (const Symbol& sym, int component,
                                  int deriv)
 {
-    // Regardless of what object this is, if it doesn't have derivs but we're asking for them, return 0
+    // Regardless of what object this is, if it doesn't have derivs but
+    // we're asking for them, return 0
     bool has_derivs = sym.has_derivs();
     if (!has_derivs && deriv != 0) {
         // Asking for the value of our derivative, but we don't have one. Return 0.
         if (sym.typespec().is_floatbased()) {
-            return ConstantFP::get (llvm_context(), APFloat(0.f));
+            return llvm::ConstantFP::get (llvm_context(), llvm::APFloat(0.f));
         } else {
-            return ConstantInt::get (llvm_context(), APInt(32, 0));
+            ASSERT (0 && "int values don't have derivatives");
+            return llvm::ConstantInt::get (llvm_context(), llvm::APInt(32, 0));
         }
     }
 
@@ -419,7 +428,7 @@ RuntimeOptimizer::loadLLVMValue (const Symbol& sym, int component,
 
 
 void
-RuntimeOptimizer::storeLLVMValue (Value* new_val, const Symbol& sym,
+RuntimeOptimizer::storeLLVMValue (llvm::Value* new_val, const Symbol& sym,
                                   int component, int deriv)
 {
     bool has_derivs = sym.has_derivs();
@@ -457,7 +466,7 @@ llvm_gen_printf (RuntimeOptimizer &rop, int opnum)
     llvm::Function *llvm_printf_func = rop.llvm_module()->getFunction("llvm_osl_printf");
 
     // Prepare the args for the call
-    SmallVector<Value*, 16> call_args;
+    llvm::SmallVector<llvm::Value*, 16> call_args;
     Symbol& format_sym = *rop.opargsym (op, 0);
     if (!format_sym.is_constant()) {
         rop.shadingsys().warning ("printf must currently have constant format\n");
@@ -512,7 +521,7 @@ llvm_gen_printf (RuntimeOptimizer &rop, int opnum)
                 // NOTE(boulos): Annoyingly varargs makes it so that things need
                 // to be upconverted from float to double (who knew?)
                 if (sym.typespec().is_floatbased()) {
-                    call_args.push_back (rop.builder().CreateFPExt(loaded, Type::getDoubleTy(rop.llvm_context())));
+                    call_args.push_back (rop.builder().CreateFPExt(loaded, llvm::Type::getDoubleTy(rop.llvm_context())));
                 } else {
                     call_args.push_back (loaded);
                 }
@@ -551,18 +560,22 @@ llvm_gen_printf (RuntimeOptimizer &rop, int opnum)
 
 
 
+/// Convert a float llvm value to an integer.
+///
 llvm::Value *
 RuntimeOptimizer::llvm_float_to_int (llvm::Value* fval)
 {
-    return builder().CreateFPToSI(fval, Type::getInt32Ty(llvm_context()));
+    return builder().CreateFPToSI(fval, llvm_type_int());
 }
 
 
 
+/// Convert an integer llvm value to a float.
+///
 llvm::Value *
 RuntimeOptimizer::llvm_int_to_float (llvm::Value* ival)
 {
-    return builder().CreateSIToFP(ival, Type::getFloatTy(llvm_context()));
+    return builder().CreateSIToFP(ival, llvm_type_float());
 }
 
 
@@ -671,6 +684,7 @@ llvm_gen_unary_op (RuntimeOptimizer &rop, int opnum)
 
     bool dst_float = dst.typespec().is_floatbased();
     bool src_float = src.typespec().is_floatbased();
+    const llvm::Type* float_ty = rop.llvm_type_float();
 
     for (int i = 0; i < num_components; i++) {
         // Get src1/2 component i
@@ -689,25 +703,21 @@ llvm_gen_unary_op (RuntimeOptimizer &rop, int opnum)
                    opname == op_fabs) {
             if (src_float) {
                 // Call fabsf
-                const Type* float_ty = Type::getFloatTy(rop.llvm_context());
                 llvm::Value* fabsf_func = rop.llvm_module()->getOrInsertFunction("fabsf", float_ty, float_ty, NULL);
                 result = rop.builder().CreateCall(fabsf_func, src_val);
             } else {
                 // neg_version = -x
                 // result = (x < 0) ? neg_version : x
                 llvm::Value* negated = rop.builder().CreateNeg(src_val);
-                llvm::Value* cond = rop.builder().CreateICmpSLT(src_val, ConstantInt::get(Type::getInt32Ty(rop.llvm_context()), 0));
+                llvm::Value* cond = rop.builder().CreateICmpSLT(src_val, llvm::ConstantInt::get(rop.llvm_type_int(), 0));
                 result = rop.builder().CreateSelect(cond, negated, src_val);
             }
         } else if (opname == op_sqrt && src_float) {
-            const Type* float_ty = Type::getFloatTy(rop.llvm_context());
-            result = rop.builder().CreateCall(Intrinsic::getDeclaration(rop.llvm_module(), Intrinsic::sqrt, &float_ty, 1), src_val);
+            result = rop.builder().CreateCall(llvm::Intrinsic::getDeclaration(rop.llvm_module(), llvm::Intrinsic::sqrt, &float_ty, 1), src_val);
         } else if (opname == op_sin && src_float) {
-            const Type* float_ty = Type::getFloatTy(rop.llvm_context());
-            result = rop.builder().CreateCall(Intrinsic::getDeclaration(rop.llvm_module(), Intrinsic::sin, &float_ty, 1), src_val);
+            result = rop.builder().CreateCall(llvm::Intrinsic::getDeclaration(rop.llvm_module(), llvm::Intrinsic::sin, &float_ty, 1), src_val);
         } else if (opname == op_cos && src_float) {
-            const Type* float_ty = Type::getFloatTy(rop.llvm_context());
-            result = rop.builder().CreateCall(Intrinsic::getDeclaration(rop.llvm_module(), Intrinsic::cos, &float_ty, 1), src_val);
+            result = rop.builder().CreateCall(llvm::Intrinsic::getDeclaration(rop.llvm_module(), llvm::Intrinsic::cos, &float_ty, 1), src_val);
         } else {
             // Don't know how to handle this.
             rop.shadingsys().error ("Don't know how to handle op '%s', eliding the store\n", opname.c_str());
@@ -763,10 +773,10 @@ llvm_gen_assign (RuntimeOptimizer &rop, int opnum)
         // Perform the assignment
         if (dst_float && !src_float) {
             // need int -> float
-            src_val = rop.builder().CreateSIToFP(src_val, Type::getFloatTy(rop.llvm_context()));
+            src_val = rop.builder().CreateSIToFP(src_val, rop.llvm_type_float());
         } else if (!dst_float && src_float) {
             // float -> int
-            src_val = rop.builder().CreateFPToSI(src_val, Type::getInt32Ty(rop.llvm_context()));
+            src_val = rop.builder().CreateFPToSI(src_val, rop.llvm_type_int());
         }
         rop.storeLLVMValue (src_val, dst, i, 0);
 
@@ -817,10 +827,10 @@ llvm_gen_compref (RuntimeOptimizer &rop, int opnum)
     // Perform the assignment
     if (dst_float && !src_float) {
         // need int -> float
-        src_val = rop.builder().CreateSIToFP(src_val, Type::getFloatTy(rop.llvm_context()));
+        src_val = rop.builder().CreateSIToFP(src_val, rop.llvm_type_float());
     } else if (!dst_float && src_float) {
         // float -> int
-        src_val = rop.builder().CreateFPToSI(src_val, Type::getInt32Ty(rop.llvm_context()));
+        src_val = rop.builder().CreateFPToSI(src_val, rop.llvm_type_int());
     }
 
     // compref is: scalar = vector[int]
@@ -866,10 +876,10 @@ llvm_gen_construct_aggregate (RuntimeOptimizer &rop, int opnum)
         // Perform the assignment
         if (dst_float && !src_float) {
             // need int -> float
-            src_val = rop.builder().CreateSIToFP(src_val, Type::getFloatTy(rop.llvm_context()));
+            src_val = rop.builder().CreateSIToFP(src_val, rop.llvm_type_float());
         } else if (!dst_float && src_float) {
             // float -> int
-            src_val = rop.builder().CreateFPToSI(src_val, Type::getInt32Ty(rop.llvm_context()));
+            src_val = rop.builder().CreateFPToSI(src_val, rop.llvm_type_int());
         }
         rop.storeLLVMValue (src_val, dst, i, 0);
 
@@ -970,7 +980,7 @@ llvm_gen_compare_op (RuntimeOptimizer &rop, int opnum)
 
     if (final_result) {
         // Convert the single bit bool into an int for now.
-        final_result = rop.builder().CreateZExt(final_result, Type::getInt32Ty(rop.llvm_context()));
+        final_result = rop.builder().CreateZExt (final_result, rop.llvm_type_int());
 
         bool is_float = dst.typespec().is_floatbased();
         if (is_float) {
@@ -1026,7 +1036,7 @@ llvm_gen_unary_reduction (RuntimeOptimizer &rop, int opnum)
             case 1: coeff = .7152f; break;
             default: coeff = .0722f; break;
             }
-            result = rop.builder().CreateFMul(src_val, ConstantFP::get(rop.llvm_context(), APFloat(coeff)));
+            result = rop.builder().CreateFMul(src_val, llvm::ConstantFP::get(rop.llvm_context(), llvm::APFloat(coeff)));
         } else {
             // Don't know how to handle this.
             rop.shadingsys().error ("Don't know how to handle op '%s', eliding the store\n", opname.c_str());
@@ -1045,8 +1055,8 @@ llvm_gen_unary_reduction (RuntimeOptimizer &rop, int opnum)
         // Compute sqrtf(result) if it's length instead of luminance
         if (opname == op_length) {
             // Take sqrt
-            const Type* float_ty = Type::getFloatTy(rop.llvm_context());
-            final_result = rop.builder().CreateCall(Intrinsic::getDeclaration(rop.llvm_module(), Intrinsic::sqrt, &float_ty, 1), final_result);
+            const llvm::Type* float_ty = rop.llvm_type_float();
+            final_result = rop.builder().CreateCall(llvm::Intrinsic::getDeclaration(rop.llvm_module(), llvm::Intrinsic::sqrt, &float_ty, 1), final_result);
         }
 
         rop.storeLLVMValue (final_result, dst, 0, 0);
@@ -1187,10 +1197,10 @@ llvm_gen_normalize (RuntimeOptimizer &rop, int opnum)
     }
 
     // Take sqrt
-    const Type* float_ty = Type::getFloatTy(rop.llvm_context());
-    llvm::Value* length = rop.builder().CreateCall(Intrinsic::getDeclaration(rop.llvm_module(), Intrinsic::sqrt, &float_ty, 1), length_squared);
+    const llvm::Type* float_ty = rop.llvm_type_float();
+    llvm::Value* length = rop.builder().CreateCall(llvm::Intrinsic::getDeclaration(rop.llvm_module(), llvm::Intrinsic::sqrt, &float_ty, 1), length_squared);
     // Compute 1/length
-    llvm::Value* inv_length = rop.builder().CreateFDiv(ConstantFP::get(rop.llvm_context(), APFloat(1.f)), length);
+    llvm::Value* inv_length = rop.builder().CreateFDiv(llvm::ConstantFP::get(rop.llvm_context(), llvm::APFloat(1.f)), length);
 
     for (int i = 0; i < num_components; i++) {
         // Get src component i
@@ -1225,7 +1235,7 @@ llvm_gen_if (RuntimeOptimizer &rop, int opnum)
     // Load the condition variable
     llvm::Value* cond_load = rop.loadLLVMValue (cond, 0, 0);
     // Convert the int to a bool via truncation
-    llvm::Value* cond_bool = rop.builder().CreateTrunc (cond_load, Type::getInt1Ty(rop.llvm_context()));
+    llvm::Value* cond_bool = rop.builder().CreateTrunc (cond_load, rop.llvm_type_bool());
     // Branch on the condition, to our blocks
     llvm::BasicBlock* then_block = bb_map[opnum+1];
     llvm::BasicBlock* else_block = bb_map[op.jump(0)];
@@ -1280,7 +1290,7 @@ llvm_gen_loop_op (RuntimeOptimizer &rop, int opnum)
     // Load the condition variable (it will have been computed by now)
     llvm::Value* cond_load = rop.loadLLVMValue (cond, 0, 0);
     // Convert the int to a bool via truncation
-    llvm::Value* cond_bool = rop.builder().CreateTrunc(cond_load, Type::getInt1Ty(rop.llvm_context()));
+    llvm::Value* cond_bool = rop.builder().CreateTrunc(cond_load, rop.llvm_type_bool());
     // Jump to either LoopBody or AfterLoop
     rop.builder().CreateCondBr(cond_bool, body_block, after_block);
 
@@ -1314,11 +1324,11 @@ RuntimeOptimizer::llvm_assign_initial_constant (const Symbol& sym)
         // shadingsys.info ("Assigning initial value for symbol '%s' = ", sym.mangled().c_str());
         if (is_float) {
             float fval = ((float*)sym.data())[i];
-            init_val = ConstantFP::get(llvm_context(), APFloat(fval));
+            init_val = llvm::ConstantFP::get(llvm_context(), llvm::APFloat(fval));
             // shadingsys.info ("%f\n", fval);
         } else {
             int ival = ((int*)sym.data())[i];
-            init_val = ConstantInt::get(llvm_context(), APInt(32, ival));
+            init_val = llvm::ConstantInt::get(llvm_context(), llvm::APInt(32, ival));
             // shadingsys.info ("%d\n", ival);
         }
         storeLLVMValue (init_val, sym, i, 0);
@@ -1388,22 +1398,29 @@ RuntimeOptimizer::build_llvm_version ()
     llvm::Module *all_ops (m_llvm_module);
     m_named_values.clear ();
 
+    // Get handy type definitions from LLVM
+    m_llvm_type_float = llvm::Type::getFloatTy (*m_llvm_context);
+    m_llvm_type_int = llvm::Type::getInt32Ty (*m_llvm_context);
+    m_llvm_type_bool = llvm::Type::getInt1Ty (*m_llvm_context);
+    m_llvm_type_void = llvm::Type::getVoidTy (*m_llvm_context);
+    m_llvm_type_char_ptr = llvm::Type::getInt8PtrTy (*m_llvm_context);
+    
     // I'd like our new function to take just a ShaderGlobals...
     char unique_layer_name[1024];
     sprintf (unique_layer_name, "%s_%d", inst()->layername().c_str(), inst()->id());
     const llvm::StructType* sg_type = getShaderGlobalType ();
-    llvm::PointerType* sg_ptr_type = PointerType::get(sg_type, 0 /* Address space */);
+    llvm::PointerType* sg_ptr_type = llvm::PointerType::get(sg_type, 0 /* Address space */);
     // Make a layer function: void layer_func(ShaderGlobal*)
-    m_layer_func = cast<Function>(all_ops->getOrInsertFunction(unique_layer_name, Type::getVoidTy(*m_llvm_context), sg_ptr_type, NULL));
+    m_layer_func = llvm::cast<llvm::Function>(all_ops->getOrInsertFunction(unique_layer_name, llvm_type_void(), sg_ptr_type, NULL));
     const OpcodeVec& instance_ops (inst()->ops());
-    Function::arg_iterator arg_it = m_layer_func->arg_begin();
+    llvm::Function::arg_iterator arg_it = m_layer_func->arg_begin();
     // Get shader globals pointer
     m_llvm_shaderglobals_ptr = arg_it++;
 
     llvm::BasicBlock* entry_bb = llvm::BasicBlock::Create (llvm_context(), "EntryBlock", m_layer_func);
 
     delete m_builder;
-    m_builder = new IRBuilder<> (entry_bb);
+    m_builder = new llvm::IRBuilder<> (entry_bb);
 
     // Setup the symbols
     BOOST_FOREACH (Symbol &s, inst()->symbols()) {
@@ -1459,12 +1476,12 @@ RuntimeOptimizer::build_llvm_version ()
 
     builder().CreateRetVoid();
 
-    outs() << "layer_func (" << unique_layer_name << ") after llvm  = " << *m_layer_func << "\n";
+    llvm::outs() << "layer_func (" << unique_layer_name << ") after llvm  = " << *m_layer_func << "\n";
 
     // Now optimize the result
     shadingsys().FunctionOptimizer()->run(*m_layer_func);
 
-    outs() << "layer_func (" << unique_layer_name << ") after opt  = " << *m_layer_func << "\n";
+    llvm::outs() << "layer_func (" << unique_layer_name << ") after opt  = " << *m_layer_func << "\n";
 
     inst()->llvm_version = m_layer_func;
 

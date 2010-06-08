@@ -258,6 +258,13 @@ public:
 
     llvm::Value *sg_ptr () const { return m_llvm_shaderglobals_ptr; }
 
+    const llvm::Type *llvm_type_float() { return m_llvm_type_float; }
+    const llvm::Type *llvm_type_int() { return m_llvm_type_int; }
+    const llvm::Type *llvm_type_bool() { return m_llvm_type_bool; }
+    const llvm::Type *llvm_type_void() { return m_llvm_type_void; }
+    const llvm::PointerType *llvm_type_void_ptr() { return m_llvm_type_char_ptr; }
+    const llvm::PointerType *llvm_type_string() { return m_llvm_type_char_ptr; }
+
 private:
     ShadingSystemImpl &m_shadingsys;
     ShaderGroup &m_group;             ///< Group we're optimizing
@@ -282,6 +289,11 @@ private:
     llvm::IRBuilder<> *m_builder;
     llvm::Value *m_llvm_shaderglobals_ptr;
     llvm::Function *m_layer_func;     ///< Current layer func we're building
+    const llvm::Type *m_llvm_type_float;
+    const llvm::Type *m_llvm_type_int;
+    const llvm::Type *m_llvm_type_bool;
+    const llvm::Type *m_llvm_type_void;
+    const llvm::PointerType *m_llvm_type_char_ptr;
 
     // Persistant data shared between layers
     bool m_unknown_message_sent;      ///< Somebody did a non-const setmessage
