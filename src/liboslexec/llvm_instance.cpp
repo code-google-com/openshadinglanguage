@@ -627,8 +627,8 @@ RuntimeOptimizer::llvm_int_to_float (llvm::Value* ival)
 /// Generate IR code for simple a/b, but considering OSL's semantics
 /// that x/0 = 0, not inf.
 static llvm::Value *
-llvm_make_div (RuntimeOptimizer &rop, TypeDesc type,
-               llvm::Value *a, llvm::Value *b)
+llvm_make_safe_div (RuntimeOptimizer &rop, TypeDesc type,
+                    llvm::Value *a, llvm::Value *b)
 {
     if (type.basetype == TypeDesc::FLOAT) {
         llvm::Value *div = rop.builder().CreateFDiv (a, b);
@@ -645,87 +645,292 @@ llvm_make_div (RuntimeOptimizer &rop, TypeDesc type,
 
 
 
-// Simple (pointwise) binary ops (+-*/)
-LLVMGEN (llvm_gen_binary_op)
+LLVMGEN (llvm_gen_add)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& A = *rop.opargsym (op, 1);
+    Symbol& B = *rop.opargsym (op, 2);
 
-    Symbol& dst  = *rop.opargsym (op, 0);
-    Symbol& src1 = *rop.opargsym (op, 1);
-    Symbol& src2 = *rop.opargsym (op, 2);
-    if (SkipSymbol(dst) ||
-        SkipSymbol(src1) ||
-        SkipSymbol(src2))
-        return false;
+    if (Result.typespec().is_closure()) {
+        // FIXME : closure addition
+        ASSERT (A.typespec().is_closure() && B.typespec().is_closure());
+        return 0;
+    }
 
-    bool dst_derivs = dst.has_derivs();
-    int num_components = dst.typespec().simpletype().aggregate;
-    bool is_float = dst.typespec().is_floatbased();
+    TypeDesc type = Result.typespec().simpletype();
+    bool is_float = Result.typespec().is_floatbased();
+    int num_components = type.aggregate;
 
-    bool src1_float = src1.typespec().is_floatbased();
-    bool src2_float = src2.typespec().is_floatbased();
-
+    // The following should handle f+f, v+v, v+f, f+v, i+i
+    // That's all that should be allowed by oslc.
     for (int i = 0; i < num_components; i++) {
-        // Get src1/2 component i
-        llvm::Value* src1_load = rop.loadLLVMValue (src1, i, 0);
-        llvm::Value* src2_load = rop.loadLLVMValue (src2, i, 0);
-
-        if (!src1_load || !src2_load)
+        llvm::Value *a = rop.loadLLVMValue (A, i, 0, type);
+        llvm::Value *b = rop.loadLLVMValue (B, i, 0, type);
+        if (!a || !b)
             return false;
+        llvm::Value *r = is_float ? rop.builder().CreateFAdd(a, b)
+                                  : rop.builder().CreateAdd(a, b);
+        rop.storeLLVMValue (r, Result, i, 0);
+    }
 
-        llvm::Value* src1_val = src1_load;
-        llvm::Value* src2_val = src2_load;
-
-        bool need_float_op = src1_float || src2_float;
-        if (need_float_op) {
-            // upconvert int -> float for the op if necessary
-            if (src1_float && !src2_float) {
-                src2_val = rop.llvm_int_to_float (src2_load);
-            } else if (!src1_float && src2_float) {
-                src1_val = rop.llvm_int_to_float (src1_load);
-            } else {
-                // both floats, do nothing
+    if (Result.has_derivs()) {
+        ASSERT (is_float);
+        if (A.has_derivs() || B.has_derivs()) {
+            for (int d = 1;  d <= 2;  ++d) {  // dx, dy
+                for (int i = 0; i < num_components; i++) {
+                    llvm::Value *a = rop.loadLLVMValue (A, i, d, type);
+                    llvm::Value *b = rop.loadLLVMValue (B, i, d, type);
+                    llvm::Value *r = rop.builder().CreateFAdd(a, b);
+                    rop.storeLLVMValue (r, Result, i, d);
+                }
             }
-        }
-
-        // Perform the op
-        llvm::Value* result = 0;
-        ustring opname = op.opname();
-
-        // Upconvert the value if necessary fr
-
-        if (opname == op_add) {
-            result = (need_float_op) ? rop.builder().CreateFAdd(src1_val, src2_val) : rop.builder().CreateAdd(src1_val, src2_val);
-        } else if (opname == op_sub) {
-            result = (need_float_op) ? rop.builder().CreateFSub(src1_val, src2_val) : rop.builder().CreateSub(src1_val, src2_val);
-        } else if (opname == op_mul) {
-            result = (need_float_op) ? rop.builder().CreateFMul(src1_val, src2_val) : rop.builder().CreateMul(src1_val, src2_val);
-        } else if (opname == op_div) {
-            result = llvm_make_div (rop, need_float_op ? TypeDesc::FLOAT : TypeDesc::INT,
-                                    src1_val, src2_val);
-        } else if (opname == op_mod) {
-            result = (need_float_op) ? rop.builder().CreateFRem(src1_val, src2_val) : rop.builder().CreateSRem(src1_val, src2_val);
         } else {
-            // Don't know how to handle this.
-            rop.shadingsys().error ("Don't know how to handle op '%s', eliding the store\n", opname.c_str());
+            // Result has derivs, operands do not
+            rop.llvm_zero_derivs (Result);
         }
+    }
+    return true;
+}
 
-        // Store the result
-        if (result) {
-            // if our op type doesn't match result, convert
-            if (is_float && !need_float_op) {
-                // Op was int, but we need to store float
-                result = rop.llvm_int_to_float (result);
-            } else if (!is_float && need_float_op) {
-                // Op was float, but we need to store int
-                result = rop.llvm_float_to_int (result);
-            } // otherwise just fine
-            rop.storeLLVMValue (result, dst, i, 0);
+
+
+LLVMGEN (llvm_gen_sub)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& A = *rop.opargsym (op, 1);
+    Symbol& B = *rop.opargsym (op, 2);
+
+    TypeDesc type = Result.typespec().simpletype();
+    bool is_float = Result.typespec().is_floatbased();
+    int num_components = type.aggregate;
+
+    if (Result.typespec().is_closure()) {
+        // FIXME : closure subtraction
+        ASSERT (A.typespec().is_closure() && B.typespec().is_closure());
+        return 0;
+    }
+
+    // The following should handle f-f, v-v, v-f, f-v, i-i
+    // That's all that should be allowed by oslc.
+    for (int i = 0; i < num_components; i++) {
+        llvm::Value *a = rop.loadLLVMValue (A, i, 0, type);
+        llvm::Value *b = rop.loadLLVMValue (B, i, 0, type);
+        if (!a || !b)
+            return false;
+        llvm::Value *r = is_float ? rop.builder().CreateFSub(a, b)
+                                  : rop.builder().CreateSub(a, b);
+        rop.storeLLVMValue (r, Result, i, 0);
+    }
+
+    if (Result.has_derivs()) {
+        ASSERT (is_float);
+        if (A.has_derivs() || B.has_derivs()) {
+            for (int d = 1;  d <= 2;  ++d) {  // dx, dy
+                for (int i = 0; i < num_components; i++) {
+                    llvm::Value *a = rop.loadLLVMValue (A, i, d, type);
+                    llvm::Value *b = rop.loadLLVMValue (B, i, d, type);
+                    llvm::Value *r = rop.builder().CreateFSub(a, b);
+                    rop.storeLLVMValue (r, Result, i, d);
+                }
+            }
+        } else {
+            // Result has derivs, operands do not
+            rop.llvm_zero_derivs (Result);
         }
+    }
+    return true;
+}
 
-        if (dst_derivs) {
-            // mul results in <a * b, a * b_dx + b * a_dx, a * b_dy + b * a_dy>
-            rop.shadingsys().info ("punting on derivatives for now\n");
+
+
+LLVMGEN (llvm_gen_mul)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& A = *rop.opargsym (op, 1);
+    Symbol& B = *rop.opargsym (op, 2);
+
+    TypeDesc type = Result.typespec().simpletype();
+    bool is_float = Result.typespec().is_floatbased();
+    int num_components = type.aggregate;
+
+    if (Result.typespec().is_closure()) {
+        // FIXME -- closure*f, f*closure, closure*v, v*closure
+        return 0;
+    }
+
+    // FIXME -- matrix mult:  m*m, m*f, f*m
+
+    // The following should handle f*f, v*v, v*f, f*v, i*i
+    // That's all that should be allowed by oslc.
+    for (int i = 0; i < num_components; i++) {
+        llvm::Value *a = rop.loadLLVMValue (A, i, 0, type);
+        llvm::Value *b = rop.loadLLVMValue (B, i, 0, type);
+        if (!a || !b)
+            return false;
+        llvm::Value *r = is_float ? rop.builder().CreateFMul(a, b)
+                                  : rop.builder().CreateMul(a, b);
+        rop.storeLLVMValue (r, Result, i, 0);
+    }
+
+    if (Result.has_derivs()) {
+        ASSERT (is_float);
+        if (A.has_derivs() || B.has_derivs()) {
+            // Multiplication of duals: (a*b, a*b.dx + a.dx*b, a*b.dy + a.dy*b)
+            for (int i = 0; i < num_components; i++) {
+                llvm::Value *a = rop.loadLLVMValue (A, i, 0, type);
+                llvm::Value *b = rop.loadLLVMValue (B, i, 0, type);
+                llvm::Value *ax = rop.loadLLVMValue (A, i, 1, type);
+                llvm::Value *bx = rop.loadLLVMValue (B, i, 1, type);
+                llvm::Value *abx = rop.builder().CreateFMul(a, bx);
+                llvm::Value *axb = rop.builder().CreateFMul(ax, b);
+                llvm::Value *r = rop.builder().CreateFAdd(abx, axb);
+                rop.storeLLVMValue (r, Result, i, 1);
+            }
+
+            for (int i = 0; i < num_components; i++) {
+                llvm::Value *a = rop.loadLLVMValue (A, i, 0, type);
+                llvm::Value *b = rop.loadLLVMValue (B, i, 0, type);
+                llvm::Value *ay = rop.loadLLVMValue (A, i, 2, type);
+                llvm::Value *by = rop.loadLLVMValue (B, i, 2, type);
+                llvm::Value *aby = rop.builder().CreateFMul(a, by);
+                llvm::Value *ayb = rop.builder().CreateFMul(ay, b);
+                llvm::Value *r = rop.builder().CreateFAdd(aby, ayb);
+                rop.storeLLVMValue (r, Result, i, 2);
+            }
+        } else {
+            // Result has derivs, operands do not
+            rop.llvm_zero_derivs (Result);
+        }
+    }
+    return true;
+}
+
+
+
+LLVMGEN (llvm_gen_div)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& A = *rop.opargsym (op, 1);
+    Symbol& B = *rop.opargsym (op, 2);
+
+    TypeDesc type = Result.typespec().simpletype();
+    bool is_float = Result.typespec().is_floatbased();
+    int num_components = type.aggregate;
+
+    // FIXME -- matrix division and inverse:  m/m, m/f, f/m
+
+    // The following should handle f/f, v/v, v/f, f/v, i/i
+    // That's all that should be allowed by oslc.
+    for (int i = 0; i < num_components; i++) {
+        llvm::Value *a = rop.loadLLVMValue (A, i, 0, type);
+        llvm::Value *b = rop.loadLLVMValue (B, i, 0, type);
+        if (!a || !b)
+            return false;
+        llvm::Value *r = llvm_make_safe_div (rop, type, a, b);
+        rop.storeLLVMValue (r, Result, i, 0);
+    }
+
+    if (Result.has_derivs()) {
+        ASSERT (is_float);
+        if (A.has_derivs() || B.has_derivs()) {
+            // Division of duals: (a/b, 1/b*(ax-a/b*bx), 1/b*(ay-a/b*by))
+            for (int i = 0; i < num_components; i++) {
+                llvm::Value *a = rop.loadLLVMValue (A, i, 0, type);
+                llvm::Value *b = rop.loadLLVMValue (B, i, 0, type);
+                llvm::Value *binv = llvm_make_safe_div (rop, type,
+                                                   rop.llvm_constant(1.0f), b);
+                llvm::Value *ax = rop.loadLLVMValue (A, i, 1, type);
+                llvm::Value *bx = rop.loadLLVMValue (B, i, 1, type);
+                llvm::Value *a_div_b = rop.builder().CreateFMul (a, binv);
+                llvm::Value *a_div_b_mul_bx = rop.builder().CreateFMul (a_div_b, bx);
+                llvm::Value *ax_minus_a_div_b_mul_bx = rop.builder().CreateFSub (ax, a_div_b_mul_bx);
+                llvm::Value *r = rop.builder().CreateFMul (binv, ax_minus_a_div_b_mul_bx);
+                rop.storeLLVMValue (r, Result, i, 1);
+            }
+
+            for (int i = 0; i < num_components; i++) {
+                llvm::Value *a = rop.loadLLVMValue (A, i, 0, type);
+                llvm::Value *b = rop.loadLLVMValue (B, i, 0, type);
+                llvm::Value *binv = llvm_make_safe_div (rop, type,
+                                                   rop.llvm_constant(1.0f), b);
+                llvm::Value *ay = rop.loadLLVMValue (A, i, 2, type);
+                llvm::Value *by = rop.loadLLVMValue (B, i, 2, type);
+                llvm::Value *a_div_b = rop.builder().CreateFMul (a, binv);
+                llvm::Value *a_div_b_mul_by = rop.builder().CreateFMul (a_div_b, by);
+                llvm::Value *ay_minus_a_div_b_mul_by = rop.builder().CreateFSub (ay, a_div_b_mul_by);
+                llvm::Value *r = rop.builder().CreateFMul (binv, ay_minus_a_div_b_mul_by);
+                rop.storeLLVMValue (r, Result, i, 2);
+            }
+        } else {
+            // Result has derivs, operands do not
+            rop.llvm_zero_derivs (Result);
+        }
+    }
+    return true;
+}
+
+
+
+/// Generate IR code for simple a mod b, but considering OSL's semantics
+/// that x mod 0 = 0, not inf.
+static llvm::Value *
+llvm_make_safe_mod (RuntimeOptimizer &rop, TypeDesc type,
+                    llvm::Value *a, llvm::Value *b)
+{
+    if (type.basetype == TypeDesc::FLOAT) {
+        llvm::Value *mod = rop.builder().CreateFRem (a, b);
+        llvm::Value *zero = rop.llvm_constant (0.0f);
+        llvm::Value *iszero = rop.builder().CreateFCmpOEQ (b, zero);
+        return rop.builder().CreateSelect (iszero, zero, mod);
+    } else {
+        llvm::Value *mod = rop.builder().CreateSRem (a, b);
+        llvm::Value *zero = rop.llvm_constant (0);
+        llvm::Value *iszero = rop.builder().CreateICmpEQ (b, zero);
+        return rop.builder().CreateSelect (iszero, zero, mod);
+    }
+}
+
+
+
+LLVMGEN (llvm_gen_mod)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& A = *rop.opargsym (op, 1);
+    Symbol& B = *rop.opargsym (op, 2);
+
+    TypeDesc type = Result.typespec().simpletype();
+    bool is_float = Result.typespec().is_floatbased();
+    int num_components = type.aggregate;
+
+    // The following should handle f%f, v%v, v%f, i%i
+    // That's all that should be allowed by oslc.
+    for (int i = 0; i < num_components; i++) {
+        llvm::Value *a = rop.loadLLVMValue (A, i, 0, type);
+        llvm::Value *b = rop.loadLLVMValue (B, i, 0, type);
+        if (!a || !b)
+            return false;
+        llvm::Value *r = llvm_make_safe_mod (rop, type, a, b);
+        rop.storeLLVMValue (r, Result, i, 0);
+    }
+
+    if (Result.has_derivs()) {
+        ASSERT (is_float);
+        if (A.has_derivs()) {
+            // Modulus of duals: (a mod b, ax, ay)
+            for (int d = 1;  d <= 2;  ++d) {
+                for (int i = 0; i < num_components; i++) {
+                    llvm::Value *deriv = rop.loadLLVMValue (A, i, d, type);
+                    rop.storeLLVMValue (deriv, Result, i, d);
+                }
+            }
+        } else {
+            // Result has derivs, operands do not
+            rop.llvm_zero_derivs (Result);
         }
     }
     return true;
@@ -1430,11 +1635,11 @@ initialize_llvm_generator_table ()
 #define INIT(name) llvm_generator_table[ustring(#name)] = llvm_gen_##name;
 
     INIT (assign);
-    INIT2 (add, llvm_gen_binary_op);
-    INIT2 (sub, llvm_gen_binary_op);
-    INIT2 (mul, llvm_gen_binary_op);
-    INIT2 (div, llvm_gen_binary_op);
-    INIT2 (mod, llvm_gen_binary_op);
+    INIT (add);
+    INIT (sub);
+    INIT (mul);
+    INIT (div);
+    INIT (mod);
     INIT (dot);
     INIT (cross);
     INIT (normalize);
