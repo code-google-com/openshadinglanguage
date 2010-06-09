@@ -44,14 +44,11 @@ namespace pvt {
 
 
 static ustring op_abs("abs");
-static ustring op_add("add");
-static ustring op_assign("assign");
 static ustring op_ceil("ceil");
 static ustring op_color("color");
 static ustring op_compref("compref");
 static ustring op_cos("cos");
 static ustring op_cross("cross");
-static ustring op_div("div");
 static ustring op_dot("dot");
 static ustring op_dowhile("dowhile");
 static ustring op_end("end");
@@ -73,8 +70,6 @@ static ustring op_log2("log2");
 static ustring op_logb("logb");
 static ustring op_lt("lt");
 static ustring op_luminance("luminance");
-static ustring op_mod("mod");
-static ustring op_mul("mul");
 static ustring op_neg("neg");
 static ustring op_neq("neq");
 static ustring op_nop("nop");
@@ -82,7 +77,6 @@ static ustring op_normalize("normalize");
 static ustring op_printf("printf");
 static ustring op_sin("sin");
 static ustring op_sqrt("sqrt");
-static ustring op_sub("sub");
 static ustring op_vector("vector");
 static ustring op_while("while");
 
@@ -1017,6 +1011,20 @@ LLVMGEN (llvm_gen_unary_op)
 
 
 
+extern "C" void
+llvm_osl_closure_clear (ClosureColor *c, float f)
+{
+    c->clear ();
+}
+
+extern "C" void
+llvm_osl_closure_assign (ClosureColor *c, ClosureColor *x)
+{
+    *c = *x;
+}
+
+
+
 // Simple assignment
 LLVMGEN (llvm_gen_assign)
 {
@@ -1029,7 +1037,17 @@ LLVMGEN (llvm_gen_assign)
             ! Src.typespec().is_array());
 
     if (Result.typespec().is_closure() || Src.typespec().is_closure()) {
-        ASSERT (0 && "llvm_gen_assign doesn't handle closures yet");
+        llvm::Function *func;
+        llvm::Value* call_args[2];
+        int nargs = 0;
+        call_args[nargs++] = rop.loadLLVMValue (Result);
+        if (Src.typespec().is_closure()) {
+            func = rop.llvm_module()->getFunction("llvm_osl_closure_clear");
+        } else {
+            func = rop.llvm_module()->getFunction("llvm_osl_closure_assign");
+            call_args[nargs++] = rop.loadLLVMValue (Src);
+        }
+        rop.builder().CreateCall (func, call_args, call_args+nargs);
         return false;
     }
     
@@ -1813,10 +1831,24 @@ ShadingSystemImpl::SetupLLVM ()
     //shadingsys().info ("LLVM ready!\n");
 
     info ("Adding in extern functions");
-    std::vector<const llvm::Type*> printf_params;
-    printf_params.push_back (llvm::Type::getInt8PtrTy(*llvm_context()));
-    llvm::FunctionType* printf_type = llvm::FunctionType::get (llvm::Type::getVoidTy(*llvm_context()), printf_params, true /* varargs */);
-    m_llvm_module->getOrInsertFunction ("llvm_osl_printf", printf_type);
+    std::vector<const llvm::Type*> params;
+    llvm::FunctionType *func_type;
+
+    params.clear ();
+    params.push_back (llvm::Type::getInt8PtrTy(*llvm_context()));
+    func_type = llvm::FunctionType::get (llvm::Type::getVoidTy(*llvm_context()), params, true /* varargs */);
+    m_llvm_module->getOrInsertFunction ("llvm_osl_printf", func_type);
+
+    params.clear ();
+    params.push_back (llvm::Type::getInt8PtrTy(*llvm_context()));
+    func_type = llvm::FunctionType::get (llvm::Type::getFloatTy(*llvm_context()), params, false /* varargs */);
+    m_llvm_module->getOrInsertFunction ("llvm_osl_closure_clear", func_type);
+
+    params.clear ();
+    params.push_back (llvm::Type::getInt8PtrTy(*llvm_context()));
+    params.push_back (llvm::Type::getInt8PtrTy(*llvm_context()));
+    func_type = llvm::FunctionType::get (llvm::Type::getFloatTy(*llvm_context()), params, false /* varargs */);
+    m_llvm_module->getOrInsertFunction ("llvm_osl_closure_assign", func_type);
 
     initialize_llvm_generator_table ();
 }
