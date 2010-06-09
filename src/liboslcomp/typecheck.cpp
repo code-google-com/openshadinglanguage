@@ -1218,7 +1218,7 @@ OSLCompilerImpl::initialize_builtin_funcs ()
 
 
 TypeSpec
-OSLCompilerImpl::type_from_code (const char *code, int *advance) const
+OSLCompilerImpl::type_from_code (const char *code, int *advance)
 {
     TypeSpec t;
     int i = 0;

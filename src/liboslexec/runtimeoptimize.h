@@ -228,7 +228,13 @@ public:
         return inst()->argsymbol (op.firstarg()+argnum);
     }
 
+    /// Create an llvm function for the current shader instance, JIT it,
+    /// and return the llvm::Function* handle to it.
     llvm::Function* build_llvm_version ();
+
+    /// Set up a bunch of static things we'll need.
+    ///
+    void initialize_llvm_stuff ();
 
     typedef std::map<std::string, llvm::AllocaInst*> AllocationMap;
     typedef std::vector<llvm::BasicBlock*> BasicBlockMap;
@@ -251,13 +257,22 @@ public:
     llvm::Value *loadLLVMValue (const Symbol& sym, int component=0, int deriv=0,
                                 TypeDesc cast=TypeDesc::UNKNOWN);
 
+    /// Return the llvm::Value* corresponding to the address of the
+    /// symbol, with optional derivative (0=value, 1=dx, 2=dy).  Returns
+    /// NULL upon failure.
+    llvm::Value *load_llvm_ptr (const Symbol& sym, int deriv=0);
+
     /// Store new_val into given symbol, with optional component (x=0,
     /// y=1, z=2) and/or derivative (0=value, 1=dx, 2=dy).  Returns true
     /// if ok, false upon failure.
     bool storeLLVMValue (llvm::Value* new_val, const Symbol& sym,
                          int component=0, int deriv=0);
+
+    /// Return the llvm::Value* corresponding to the symbol, which is a
+    /// shader global, and if 'ptr' is true return its address rather
+    /// than its value.
     llvm::Value *LLVMLoadShaderGlobal (const Symbol& sym, int component,
-                                       int deriv);
+                                       int deriv, bool ptr=false);
     llvm::Value *LLVMStoreShaderGlobal (llvm::Value* val, const Symbol& sym,
                                         int component, int deriv);
     llvm::Value *LoadParam (const Symbol& sym, int component, int deriv,
@@ -283,6 +298,28 @@ public:
     ///
     void llvm_zero_derivs (Symbol &sym);
 
+    llvm::Value *sym_to_llvmval (Symbol &sym);
+
+    /// Generate code for a call to the named function with the given arg
+    /// list.  Return an llvm::Value* corresponding to the return value of
+    /// the function, if any.
+    llvm::Value *llvm_call_function (const char *name,
+                                     llvm::Value **args, int nargs);
+
+
+    /// Generate code for a call to the named function with the given
+    /// arg list as symbols -- float & ints will be passed by value,
+    /// triples and matrices will be passed by address.  Return an
+    /// llvm::Value* corresponding to the return value of the function,
+    /// if any.
+    llvm::Value *llvm_call_function (const char *name,
+                                     const Symbol **args, int nargs);
+    llvm::Value *llvm_call_function (const char *name, const Symbol &A);
+    llvm::Value *llvm_call_function (const char *name, const Symbol &A,
+                                     const Symbol &B);
+    llvm::Value *llvm_call_function (const char *name, const Symbol &A,
+                                     const Symbol &B, const Symbol &C);
+
     /// Generate the appropriate llvm type definition for an OSL TypeSpec.
     ///
     const llvm::Type *llvm_type (const TypeSpec &typespec);
@@ -293,6 +330,7 @@ public:
     const llvm::Type *llvm_type_void() { return m_llvm_type_void; }
     const llvm::PointerType *llvm_type_void_ptr() { return m_llvm_type_char_ptr; }
     const llvm::PointerType *llvm_type_string() { return m_llvm_type_char_ptr; }
+    const llvm::PointerType *llvm_type_float_ptr() { return m_llvm_type_float_ptr; }
 
 private:
     ShadingSystemImpl &m_shadingsys;
@@ -323,6 +361,7 @@ private:
     const llvm::Type *m_llvm_type_bool;
     const llvm::Type *m_llvm_type_void;
     const llvm::PointerType *m_llvm_type_char_ptr;
+    const llvm::PointerType *m_llvm_type_float_ptr;
 
     // Persistant data shared between layers
     bool m_unknown_message_sent;      ///< Somebody did a non-const setmessage

@@ -96,6 +96,29 @@ typedef bool (*OpLLVMGen) (LLVMGEN_ARGS);
 
 
 
+/// Table of all functions that we may call from the LLVM-compiled code.
+/// Alternating name and argument list, much like we use in oslc's type
+/// checking.
+static const char *llvm_helper_function_table[] = {
+    "fabsf", "ff",
+
+    "osl_printf", "xs*",
+    "osl_closure_clear", "xC",
+    "osl_closure_assign", "xCC",
+    "osl_add_closure_closure", "xCCC",
+    "osl_mul_closure_float", "xCCf",
+    "osl_mul_closure_color", "xCCc",
+    "osl_mul_mm", "xmmm",
+    "osl_mul_mf", "xmmf",
+    "osl_mul_m_ff", "xmff",
+    "osl_div_mm", "xmmm",
+    "osl_div_mf", "xmmf",
+    "osl_div_fm", "xmfm",
+    "osl_div_m_ff", "xmff",
+    NULL
+};
+
+
 
 const llvm::StructType *
 RuntimeOptimizer::getShaderGlobalType ()
@@ -259,13 +282,20 @@ RuntimeOptimizer::llvm_constant (int i)
 const llvm::Type *
 RuntimeOptimizer::llvm_type (const TypeSpec &typespec)
 {
-    ASSERT (! typespec.is_closure() && ! typespec.is_structure());
-    ASSERT (! typespec.is_array());
+    if (typespec.is_closure())
+        return llvm_type_void_ptr();
     TypeDesc t = typespec.simpletype();
     if (t == TypeDesc::FLOAT)
         return llvm_type_float();
     if (t == TypeDesc::INT)
         return llvm_type_int();
+    if (t == TypeDesc::STRING)
+        return llvm_type_string();
+    if (t.aggregate == 3 || t.aggregate == 16)
+        return llvm_type_float_ptr();
+    if (t == TypeDesc::NONE)
+        return llvm_type_void();
+    std::cerr << "Bad llvm_type(" << typespec.c_str() << ")\n";
     ASSERT (0 && "not handling this type yet");
     return NULL;
 }
@@ -289,7 +319,7 @@ RuntimeOptimizer::llvm_zero_derivs (Symbol &sym)
 
 
 extern "C" void
-llvm_osl_printf (const char* format_str, ...)
+osl_printf (const char* format_str, ...)
 {
     // FIXME -- no, no, we need to take a ShadingSys ref and go through
     // the preferred output mechanisms.
@@ -362,7 +392,7 @@ RuntimeOptimizer::getOrAllocateLLVMSymbol (const Symbol& sym,
 
 llvm::Value *
 RuntimeOptimizer::LLVMLoadShaderGlobal (const Symbol& sym, int component,
-                                        int deriv)
+                                        int deriv, bool ptr)
 {
     int sg_index = ShaderGlobalNameToIndex (sym.name(), deriv);
     //shadingsys().info ("Global '%s' has sg_index = %d\n", sym.name().c_str(), sg_index);
@@ -376,10 +406,10 @@ RuntimeOptimizer::LLVMLoadShaderGlobal (const Symbol& sym, int component,
 
     llvm::Value* field = builder().CreateConstGEP2_32 (sg_ptr(), 0, sg_index);
     if (num_elements == 1) {
-        return builder().CreateLoad (field);
+        return ptr ? field : builder().CreateLoad (field);
     } else {
         llvm::Value* element = builder().CreateConstGEP2_32(field, 0, real_component);
-        return builder().CreateLoad (element);
+        return ptr ? element : builder().CreateLoad (element);
     }
 }
 
@@ -469,6 +499,31 @@ RuntimeOptimizer::loadLLVMValue (const Symbol& sym, int component,
 
 
 
+llvm::Value *
+RuntimeOptimizer::load_llvm_ptr (const Symbol& sym, int deriv)
+{
+    ASSERT (sym.has_derivs() || deriv == 0);  // doesn't support derivs
+
+    // Handle Globals (and eventually Params) separately since they have
+    // aliasing stuff and use a different layout than locals.
+    if (sym.symtype() == SymTypeGlobal) {
+        return LLVMLoadShaderGlobal (sym, 0, deriv, true);
+    }
+
+    // Get the pointer of the aggregate (the alloca)
+    int num_elements = sym.typespec().simpletype().aggregate;
+    int index = deriv * num_elements;
+
+    llvm::Value* result = getLLVMSymbolBase (sym);
+    if (!result)
+        return 0;  // Error
+
+    llvm::Value* ptr = builder().CreateConstGEP2_32 (result, 0, index);
+    return ptr;
+}
+
+
+
 bool
 RuntimeOptimizer::storeLLVMValue (llvm::Value* new_val, const Symbol& sym,
                                   int component, int deriv)
@@ -497,10 +552,80 @@ RuntimeOptimizer::storeLLVMValue (llvm::Value* new_val, const Symbol& sym,
 
 
 
+llvm::Value *
+RuntimeOptimizer::llvm_call_function (const char *name,
+                                      llvm::Value **args, int nargs)
+{
+    const char *argcodes = NULL;
+    for (int i = 0;  llvm_helper_function_table[i];  i += 2)
+        if (! strcmp (name, llvm_helper_function_table[i]))
+            argcodes = llvm_helper_function_table[i+1];
+    ASSERT (argcodes != NULL && "unfound external function");
+
+    llvm::Function *func = llvm_module()->getFunction (name);
+    return builder().CreateCall (func, args, args+nargs);
+}
+
+
+
+llvm::Value *
+RuntimeOptimizer::llvm_call_function (const char *name, 
+                                      const Symbol **symargs, int nargs)
+{
+    std::vector<llvm::Value *> valargs;
+    valargs.resize ((size_t)nargs);
+    for (int i = 0;  i < nargs;  ++i) {
+        const Symbol &s = *(symargs[i]);
+        if (s.typespec().is_closure())
+            valargs[i] = loadLLVMValue (s);
+        else if (s.typespec().simpletype().aggregate > 1)
+            valargs[i] = load_llvm_ptr (s);
+        else
+            valargs[i] = loadLLVMValue (s);
+    }
+    return llvm_call_function (name, &valargs[0], (int)valargs.size());
+}
+
+
+
+llvm::Value *
+RuntimeOptimizer::llvm_call_function (const char *name, const Symbol &A)
+{
+    const Symbol *args[1];
+    args[0] = &A;
+    return llvm_call_function (name, args, 1);
+}
+
+
+
+llvm::Value *
+RuntimeOptimizer::llvm_call_function (const char *name, const Symbol &A,
+                                      const Symbol &B)
+{
+    const Symbol *args[2];
+    args[0] = &A;
+    args[1] = &B;
+    return llvm_call_function (name, args, 2);
+}
+
+
+
+llvm::Value *
+RuntimeOptimizer::llvm_call_function (const char *name, const Symbol &A,
+                                      const Symbol &B, const Symbol &C)
+{
+    const Symbol *args[3];
+    args[0] = &A;
+    args[1] = &B;
+    args[2] = &C;
+    return llvm_call_function (name, args, 3);
+}
+
+
+
 LLVMGEN (llvm_gen_printf)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
-    llvm::Function *llvm_printf_func = rop.llvm_module()->getFunction("llvm_osl_printf");
 
     // Prepare the args for the call
     llvm::SmallVector<llvm::Value*, 16> call_args;
@@ -590,8 +715,7 @@ LLVMGEN (llvm_gen_printf)
     //outs() << "llvm_ptr after GEP = " << *llvm_ptr << "\n";
     call_args[0] = llvm_ptr;
 
-    // Get llvm_osl_printf from the module
-    rop.builder().CreateCall(llvm_printf_func, call_args.begin(), call_args.end());
+    rop.llvm_call_function ("osl_printf", &call_args[0], (int)call_args.size());
     //outs() << "printf_call = " << *printf_call << "\n";
     return true;
 }
@@ -647,9 +771,9 @@ LLVMGEN (llvm_gen_add)
     Symbol& B = *rop.opargsym (op, 2);
 
     if (Result.typespec().is_closure()) {
-        // FIXME : closure addition
         ASSERT (A.typespec().is_closure() && B.typespec().is_closure());
-        return 0;
+        rop.llvm_call_function ("osl_add_closure_closure", Result, A, B);
+        return true;
     }
 
     TypeDesc type = Result.typespec().simpletype();
@@ -700,11 +824,8 @@ LLVMGEN (llvm_gen_sub)
     bool is_float = Result.typespec().is_floatbased();
     int num_components = type.aggregate;
 
-    if (Result.typespec().is_closure()) {
-        // FIXME : closure subtraction
-        ASSERT (A.typespec().is_closure() && B.typespec().is_closure());
-        return 0;
-    }
+    ASSERT (! Result.typespec().is_closure() &&
+            "subtraction of closures not supported");
 
     // The following should handle f-f, v-v, v-f, f-v, i-i
     // That's all that should be allowed by oslc.
@@ -750,12 +871,38 @@ LLVMGEN (llvm_gen_mul)
     bool is_float = Result.typespec().is_floatbased();
     int num_components = type.aggregate;
 
+    // multiplication involving closures
     if (Result.typespec().is_closure()) {
-        // FIXME -- closure*f, f*closure, closure*v, v*closure
-        return 0;
+        if (A.typespec().is_closure() && B.typespec().is_float())
+            rop.llvm_call_function ("osl_mul_closure_float", Result, A, B);
+        else if (A.typespec().is_float() && B.typespec().is_closure())
+            rop.llvm_call_function ("osl_mul_closure_float", Result, B, A);
+        else if (A.typespec().is_closure() && B.typespec().is_color())
+            rop.llvm_call_function ("osl_mul_closure_color", Result, A, B);
+        else if (A.typespec().is_color() && B.typespec().is_closure())
+            rop.llvm_call_function ("osl_mul_closure_color", Result, B, A);
+        else
+            ASSERT (0 && "Unknown closure multiplication variety");
+        return true;
     }
 
-    // FIXME -- matrix mult:  m*m, m*f, f*m
+    // multiplication involving matrices
+    if (Result.typespec().is_matrix()) {
+        if (A.typespec().is_float()) {
+            if (B.typespec().is_float())
+                rop.llvm_call_function ("osl_mul_m_ff", Result, A, B);
+            else if (B.typespec().is_matrix())
+                rop.llvm_call_function ("osl_mul_mf", Result, B, A);
+        } if (A.typespec().is_matrix()) {
+            if (B.typespec().is_float())
+                rop.llvm_call_function ("osl_mul_mf", Result, A, B);
+            else if (B.typespec().is_matrix())
+                rop.llvm_call_function ("osl_mul_mm", Result, A, B);
+        } else ASSERT (0);
+        if (Result.has_derivs())
+            rop.llvm_zero_derivs (Result);
+        return true;
+    }
 
     // The following should handle f*f, v*v, v*f, f*v, i*i
     // That's all that should be allowed by oslc.
@@ -815,7 +962,25 @@ LLVMGEN (llvm_gen_div)
     bool is_float = Result.typespec().is_floatbased();
     int num_components = type.aggregate;
 
-    // FIXME -- matrix division and inverse:  m/m, m/f, f/m
+    ASSERT (! Result.typespec().is_closure());
+
+    // division involving matrices
+    if (Result.typespec().is_matrix()) {
+        if (A.typespec().is_float()) {
+            if (B.typespec().is_float())
+                rop.llvm_call_function ("osl_div_m_ff", Result, A, B);
+            else if (B.typespec().is_matrix())
+                rop.llvm_call_function ("osl_div_fm", Result, A, B);
+        } if (A.typespec().is_matrix()) {
+            if (B.typespec().is_float())
+                rop.llvm_call_function ("osl_div_mf", Result, A, B);
+            else if (B.typespec().is_matrix())
+                rop.llvm_call_function ("osl_div_mm", Result, A, B);
+        } else ASSERT (0);
+        if (Result.has_derivs())
+            rop.llvm_zero_derivs (Result);
+        return true;
+    }
 
     // The following should handle f/f, v/v, v/f, f/v, i/i
     // That's all that should be allowed by oslc.
@@ -967,8 +1132,7 @@ LLVMGEN (llvm_gen_unary_op)
                    opname == op_fabs) {
             if (src_float) {
                 // Call fabsf
-                llvm::Value* fabsf_func = rop.llvm_module()->getOrInsertFunction("fabsf", float_ty, float_ty, NULL);
-                result = rop.builder().CreateCall(fabsf_func, src_val);
+                result = rop.llvm_call_function ("fabsf", &src_val, 1);
             } else {
                 // neg_version = -x
                 // result = (x < 0) ? neg_version : x
@@ -1012,16 +1176,82 @@ LLVMGEN (llvm_gen_unary_op)
 
 
 extern "C" void
-llvm_osl_closure_clear (ClosureColor *c, float f)
+osl_closure_clear (ClosureColor *r, float f)
 {
-    c->clear ();
+    r->clear ();
 }
 
 extern "C" void
-llvm_osl_closure_assign (ClosureColor *c, ClosureColor *x)
+osl_closure_assign (ClosureColor *r, ClosureColor *x)
 {
-    *c = *x;
+    *r = *x;
 }
+
+extern "C" void
+osl_add_closure_closure (ClosureColor *r, ClosureColor *a, ClosureColor *b)
+{
+    r->add (*a, *b);
+}
+
+extern "C" void
+osl_mul_closure_float (ClosureColor *r, ClosureColor *a, float b)
+{
+    *r = *a;
+    *r *= b;
+}
+
+extern "C" void
+osl_mul_closure_color (ClosureColor *r, ClosureColor *a, Color3 *b)
+{
+    *r = *a;
+    *r *= *b;
+}
+
+
+extern "C" void
+osl_mul_mm (Matrix44 *r, Matrix44 *a, Matrix44 *b)
+{
+    *r = (*a) * (*b);
+}
+
+extern "C" void
+osl_mul_mf (Matrix44 *r, Matrix44 *a, float b)
+{
+    *r = (*a) * b;
+}
+
+extern "C" void
+osl_mul_m_ff (Matrix44 *r, float a, float b)
+{
+    float f = a * b;
+    *r = Matrix44 (f,0,0,0, 0,f,0,0, 0,0,f,0, 0,0,0,f);
+}
+
+extern "C" void
+osl_div_mm (Matrix44 *r, Matrix44 *a, Matrix44 *b)
+{
+    *r = (*a) * b->inverse();
+}
+
+extern "C" void
+osl_div_mf (Matrix44 *r, Matrix44 *a, float b)
+{
+    *r = (*a) * (1.0f/b);
+}
+
+extern "C" void
+osl_div_fm (Matrix44 *r, float a, Matrix44 *b)
+{
+    *r = a * b->inverse();
+}
+
+extern "C" void
+osl_div_m_ff (Matrix44 *r, float a, float b)
+{
+    float f = (b == 0) ? 0.0f : (a / b);
+    *r = Matrix44 (f,0,0,0, 0,f,0,0, 0,0,f,0, 0,0,0,f);
+}
+
 
 
 
@@ -1037,17 +1267,16 @@ LLVMGEN (llvm_gen_assign)
             ! Src.typespec().is_array());
 
     if (Result.typespec().is_closure() || Src.typespec().is_closure()) {
-        llvm::Function *func;
         llvm::Value* call_args[2];
         int nargs = 0;
+        const char *funcname;
         call_args[nargs++] = rop.loadLLVMValue (Result);
-        if (Src.typespec().is_closure()) {
-            func = rop.llvm_module()->getFunction("llvm_osl_closure_clear");
-        } else {
-            func = rop.llvm_module()->getFunction("llvm_osl_closure_assign");
-            call_args[nargs++] = rop.loadLLVMValue (Src);
-        }
-        rop.builder().CreateCall (func, call_args, call_args+nargs);
+        call_args[nargs++] = rop.loadLLVMValue (Src);
+        if (Src.typespec().is_closure())
+            funcname = "osl_closure_clear";
+        else
+            funcname = "osl_closure_assign";
+        rop.llvm_call_function (funcname, call_args, nargs);
         return false;
     }
     
@@ -1695,16 +1924,11 @@ initialize_llvm_generator_table ()
 llvm::Function*
 RuntimeOptimizer::build_llvm_version ()
 {
+    initialize_llvm_stuff ();   // setup
+
     llvm::Module *all_ops (m_llvm_module);
     m_named_values.clear ();
 
-    // Get handy type definitions from LLVM
-    m_llvm_type_float = llvm::Type::getFloatTy (*m_llvm_context);
-    m_llvm_type_int = llvm::Type::getInt32Ty (*m_llvm_context);
-    m_llvm_type_bool = llvm::Type::getInt1Ty (*m_llvm_context);
-    m_llvm_type_void = llvm::Type::getVoidTy (*m_llvm_context);
-    m_llvm_type_char_ptr = llvm::Type::getInt8PtrTy (*m_llvm_context);
-    
     // I'd like our new function to take just a ShaderGlobals...
     char unique_layer_name[1024];
     sprintf (unique_layer_name, "%s_%d", inst()->layername().c_str(), inst()->id());
@@ -1796,6 +2020,76 @@ RuntimeOptimizer::build_llvm_version ()
 
 
 void
+RuntimeOptimizer::initialize_llvm_stuff ()
+{
+    // Set up aliases for types we use over and over
+    m_llvm_type_float = llvm::Type::getFloatTy (*m_llvm_context);
+    m_llvm_type_int = llvm::Type::getInt32Ty (*m_llvm_context);
+    m_llvm_type_bool = llvm::Type::getInt1Ty (*m_llvm_context);
+    m_llvm_type_void = llvm::Type::getVoidTy (*m_llvm_context);
+    m_llvm_type_char_ptr = llvm::Type::getInt8PtrTy (*m_llvm_context);
+    m_llvm_type_float_ptr = llvm::Type::getFloatPtrTy (*m_llvm_context);
+
+
+    // Now we have things we only need to do once for each context.
+    static spin_mutex mutex;
+    static llvm::LLVMContext *initialized_context = NULL;
+    spin_lock lock (mutex);
+    if (initialized_context == m_llvm_context)
+        return;   // already initialized for this context
+
+    m_shadingsys.info ("Adding in extern functions");
+
+    for (int i = 0;  llvm_helper_function_table[i];  i += 2) {
+        const char *funcname = llvm_helper_function_table[i];
+        bool varargs = false;
+        const char *types = llvm_helper_function_table[i+1];
+        int advance;
+        TypeSpec rettype = OSLCompilerImpl::type_from_code (types, &advance);
+        types += advance;
+        std::vector<const llvm::Type*> params;
+        while (*types) {
+            TypeSpec t = OSLCompilerImpl::type_from_code (types, &advance);
+            if (t.simpletype().basetype == TypeDesc::UNKNOWN) {
+                if (*types == '*')
+                    varargs = true;
+                else
+                    ASSERT (0);
+            } else {
+                params.push_back (llvm_type (t));
+            }
+            types += advance;
+        }
+        llvm::FunctionType *func = llvm::FunctionType::get (llvm_type(rettype), params, varargs);
+        m_llvm_module->getOrInsertFunction (funcname, func);
+    }
+
+#if 0
+    std::vector<const llvm::Type*> params;
+    llvm::FunctionType *func_type;
+    params.clear();
+    params.push_back (llvm::Type::getInt8PtrTy(*llvm_context()));
+    func_type = llvm::FunctionType::get (llvm::Type::getVoidTy(*llvm_context()), params, true /* varargs */);
+    m_llvm_module->getOrInsertFunction ("osl_printf", func_type);
+
+    params.clear ();
+    params.push_back (llvm::Type::getInt8PtrTy(*llvm_context()));
+    func_type = llvm::FunctionType::get (llvm::Type::getFloatTy(*llvm_context()), params, false /* varargs */);
+    m_llvm_module->getOrInsertFunction ("osl_closure_clear", func_type);
+    
+    params.clear ();
+    params.push_back (llvm::Type::getInt8PtrTy(*llvm_context()));
+    params.push_back (llvm::Type::getInt8PtrTy(*llvm_context()));
+    func_type = llvm::FunctionType::get (llvm::Type::getFloatTy(*llvm_context()), params, false /* varargs */);
+    m_llvm_module->getOrInsertFunction ("osl_closure_assign", func_type);
+#endif
+
+    initialized_context = m_llvm_context;
+}
+
+
+
+void
 ShadingSystemImpl::SetupLLVM ()
 {
     // Setup already
@@ -1811,8 +2105,6 @@ ShadingSystemImpl::SetupLLVM ()
 
     info ("Building an Execution Engine");
     std::string error_msg;
-
-    //m_llvm_exec = llvm::EngineBuilder(m_llvm_module).setErrorStr(&error_msg).create();
     m_llvm_exec = llvm::ExecutionEngine::create(m_llvm_module,
                                                 false,
                                                 &error_msg,
@@ -1829,26 +2121,6 @@ ShadingSystemImpl::SetupLLVM ()
     SetupLLVMOptimizer();
     //IPOOptimizer()->run(*all_ops);
     //shadingsys().info ("LLVM ready!\n");
-
-    info ("Adding in extern functions");
-    std::vector<const llvm::Type*> params;
-    llvm::FunctionType *func_type;
-
-    params.clear ();
-    params.push_back (llvm::Type::getInt8PtrTy(*llvm_context()));
-    func_type = llvm::FunctionType::get (llvm::Type::getVoidTy(*llvm_context()), params, true /* varargs */);
-    m_llvm_module->getOrInsertFunction ("llvm_osl_printf", func_type);
-
-    params.clear ();
-    params.push_back (llvm::Type::getInt8PtrTy(*llvm_context()));
-    func_type = llvm::FunctionType::get (llvm::Type::getFloatTy(*llvm_context()), params, false /* varargs */);
-    m_llvm_module->getOrInsertFunction ("llvm_osl_closure_clear", func_type);
-
-    params.clear ();
-    params.push_back (llvm::Type::getInt8PtrTy(*llvm_context()));
-    params.push_back (llvm::Type::getInt8PtrTy(*llvm_context()));
-    func_type = llvm::FunctionType::get (llvm::Type::getFloatTy(*llvm_context()), params, false /* varargs */);
-    m_llvm_module->getOrInsertFunction ("llvm_osl_closure_assign", func_type);
 
     initialize_llvm_generator_table ();
 }
