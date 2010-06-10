@@ -294,6 +294,10 @@ public:
     ///
     llvm::Value *llvm_constant (int i);
 
+    /// Return an llvm::Value holding the given integer constant.
+    ///
+    llvm::Value *llvm_constant (ustring s);
+
     /// Generate LLVM code to zero out the derivatives of sym.
     ///
     void llvm_zero_derivs (Symbol &sym);

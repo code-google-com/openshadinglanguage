@@ -279,6 +279,16 @@ RuntimeOptimizer::llvm_constant (int i)
 
 
 
+llvm::Value *
+RuntimeOptimizer::llvm_constant (ustring s)
+{
+    llvm::Value *val = builder().CreateGlobalString(s.c_str());
+    val = builder().CreateConstGEP2_32 (val, 0, 0);
+    return val;
+}
+
+
+
 const llvm::Type *
 RuntimeOptimizer::llvm_type (const TypeSpec &typespec)
 {
@@ -1292,7 +1302,7 @@ LLVMGEN (llvm_gen_assign)
         return true;
     }
 
-    // The following code handles f=f, f=i, v=v, v=f, v=i, m=m.
+    // The following code handles f=f, f=i, v=v, v=f, v=i, m=m, s=s.
     // Remember that loadLLVMValue will automatically convert scalar->triple.
     TypeDesc rt = Result.typespec().simpletype();
     TypeDesc basetype = TypeDesc::BASETYPE(rt.basetype);
@@ -1427,106 +1437,74 @@ LLVMGEN (llvm_gen_construct_aggregate)
 
 
 
-// Comparison ops (though other binary -> scalar ops like dot might end
-// up being similar)
+// Comparison ops
 LLVMGEN (llvm_gen_compare_op)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
-    Symbol& dst  = *rop.opargsym (op, 0);
-    Symbol& src1 = *rop.opargsym (op, 1);
-    Symbol& src2 = *rop.opargsym (op, 2);
-    if (SkipSymbol(dst) ||
-        SkipSymbol(src1) ||
-        SkipSymbol(src2))
-        return false;
+    Symbol &Result (*rop.opargsym (op, 0));
+    Symbol &A (*rop.opargsym (op, 1));
+    Symbol &B (*rop.opargsym (op, 2));
+    ASSERT (Result.typespec().is_int() && ! Result.has_derivs());
 
-    bool dst_derivs = dst.has_derivs();
-    int num_components = dst.typespec().simpletype().aggregate;
-
-    bool src1_float = src1.typespec().is_floatbased();
-    bool src2_float = src2.typespec().is_floatbased();
-
+    int num_components = std::max (A.typespec().aggregate(), B.typespec().aggregate());
+    bool float_based = A.typespec().is_floatbased() || B.typespec().is_floatbased();
+    TypeDesc cast (float_based ? TypeDesc::FLOAT : TypeDesc::UNKNOWN);
+                                   
     llvm::Value* final_result = 0;
+    ustring opname = op.opname();
 
     for (int i = 0; i < num_components; i++) {
-        // Get src1/2 component i
-        llvm::Value* src1_load = rop.loadLLVMValue (src1, i, 0);
-        llvm::Value* src2_load = rop.loadLLVMValue (src2, i, 0);
+        // Get A&B component i -- note that these correctly handle mixed
+        // scalar/triple comparisons as well as int->float casts as needed.
+        llvm::Value* a = rop.loadLLVMValue (A, i, 0, cast);
+        llvm::Value* b = rop.loadLLVMValue (B, i, 0, cast);
 
-        if (!src1_load) return false;
-        if (!src2_load) return false;
-
-        llvm::Value* src1_val = src1_load;
-        llvm::Value* src2_val = src2_load;
-
-        bool need_float_op = src1_float || src2_float;
-        if (need_float_op) {
-            // upconvert int -> float for the op if necessary
-            if (src1_float && !src2_float) {
-                src2_val = rop.llvm_int_to_float (src2_load);
-            } else if (!src1_float && src2_float) {
-                src1_val = rop.llvm_int_to_float (src1_load);
-            } else {
-                // both floats, do nothing
-            }
+        // Trickery for mixed matrix/scalar comparisons -- compare
+        // on-diagonal to the scalar, off-diagonal to zero
+        if (A.typespec().is_matrix() && !B.typespec().is_matrix()) {
+            if ((i/4) != (i%4))
+                b = rop.llvm_constant (0.0f);
+        }
+        if (! A.typespec().is_matrix() && B.typespec().is_matrix()) {
+            if ((i/4) != (i%4))
+                a = rop.llvm_constant (0.0f);
         }
 
         // Perform the op
         llvm::Value* result = 0;
-
-        ustring opname = op.opname();
-
-        // Upconvert the value if necessary fr
-
         if (opname == op_lt) {
-            result = (need_float_op) ? rop.builder().CreateFCmpULT(src1_val, src2_val) : rop.builder().CreateICmpSLT(src1_val, src2_val);
+            result = float_based ? rop.builder().CreateFCmpULT(a, b) : rop.builder().CreateICmpSLT(a, b);
         } else if (opname == op_le) {
-            result = (need_float_op) ? rop.builder().CreateFCmpULE(src1_val, src2_val) : rop.builder().CreateICmpSLE(src1_val, src2_val);
+            result = float_based ? rop.builder().CreateFCmpULE(a, b) : rop.builder().CreateICmpSLE(a, b);
         } else if (opname == op_eq) {
-            result = (need_float_op) ? rop.builder().CreateFCmpUEQ(src1_val, src2_val) : rop.builder().CreateICmpEQ(src1_val, src2_val);
+            result = float_based ? rop.builder().CreateFCmpUEQ(a, b) : rop.builder().CreateICmpEQ(a, b);
         } else if (opname == op_ge) {
-            result = (need_float_op) ? rop.builder().CreateFCmpUGE(src1_val, src2_val) : rop.builder().CreateICmpSGE(src1_val, src2_val);
+            result = float_based ? rop.builder().CreateFCmpUGE(a, b) : rop.builder().CreateICmpSGE(a, b);
         } else if (opname == op_gt) {
-            result = (need_float_op) ? rop.builder().CreateFCmpUGT(src1_val, src2_val) : rop.builder().CreateICmpSGT(src1_val, src2_val);
+            result = float_based ? rop.builder().CreateFCmpUGT(a, b) : rop.builder().CreateICmpSGT(a, b);
         } else if (opname == op_neq) {
-            result = (need_float_op) ? rop.builder().CreateFCmpUNE(src1_val, src2_val) : rop.builder().CreateICmpNE(src1_val, src2_val);
+            result = float_based ? rop.builder().CreateFCmpUNE(a, b) : rop.builder().CreateICmpNE(a, b);
         } else {
             // Don't know how to handle this.
-            rop.shadingsys().error ("Don't know how to handle op '%s', eliding the store\n", opname.c_str());
+            ASSERT (0 && "Comparison error");
         }
+        ASSERT (result);
 
-        if (result) {
-            if (final_result) {
-                // Combine the component bool based on the op
-                if (opname != op_neq) {
-                    // final_result &= result
-                    final_result = rop.builder().CreateAnd(final_result, result);
-                } else {
-                    // final_result |= result
-                    final_result = rop.builder().CreateOr(final_result, result);
-                }
-            } else {
-                final_result = result;
-            }
+        if (final_result) {
+            // Combine the component bool based on the op
+            if (opname != op_neq)        // final_result &= result
+                final_result = rop.builder().CreateAnd(final_result, result);
+            else                         // final_result |= result
+                final_result = rop.builder().CreateOr(final_result, result);
+        } else {
+            final_result = result;
         }
     }
+    ASSERT (final_result);
 
-    if (final_result) {
-        // Convert the single bit bool into an int for now.
-        final_result = rop.builder().CreateZExt (final_result, rop.llvm_type_int());
-
-        bool is_float = dst.typespec().is_floatbased();
-        if (is_float) {
-            final_result = rop.llvm_int_to_float (final_result);
-        }
-
-        rop.storeLLVMValue (final_result, dst, 0, 0);
-        if (dst_derivs) {
-            // deriv of conditional!?
-            rop.shadingsys().info ("punting on derivatives for now\n");
-            // FIXME
-        }
-    }
+    // Convert the single bit bool into an int for now.
+    final_result = rop.builder().CreateZExt (final_result, rop.llvm_type_int());
+    rop.storeLLVMValue (final_result, Result, 0, 0);
     return true;
 }
 
@@ -1850,15 +1828,16 @@ RuntimeOptimizer::llvm_assign_initial_constant (const Symbol& sym)
 {
     ASSERT (sym.is_constant() && ! sym.has_derivs());
     int num_components = sym.typespec().simpletype().aggregate;
-    bool is_float = sym.typespec().is_floatbased();
     for (int i = 0; i < num_components; ++i) {
         // Fill in the constant val
         // Setup initial store
         llvm::Value* init_val = 0;
         // shadingsys.info ("Assigning initial value for symbol '%s' = ", sym.mangled().c_str());
-        if (is_float)
+        if (sym.typespec().is_floatbased())
             init_val = llvm_constant (((float*)sym.data())[i]);
-        else
+        else if (sym.typespec().simpletype() == TypeDesc::TypeString)
+            init_val = llvm_constant (((ustring*)sym.data())[i]);
+        else if (sym.typespec().simpletype() == TypeDesc::TypeInt)
             init_val = llvm_constant (((int*)sym.data())[i]);
         storeLLVMValue (init_val, sym, i, 0);
     }
