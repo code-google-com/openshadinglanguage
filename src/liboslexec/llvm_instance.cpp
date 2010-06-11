@@ -239,8 +239,8 @@ SkipSymbol (const Symbol& s)
     if (s.symtype() == SymTypeOutputParam)
         return true;
 
-    if (s.typespec().simpletype().basetype == TypeDesc::STRING)
-        return true;
+//    if (s.typespec().simpletype().basetype == TypeDesc::STRING)
+//        return true;
 
     if (s.typespec().is_closure())
         return true;
@@ -375,7 +375,6 @@ RuntimeOptimizer::getOrAllocateLLVMSymbol (const Symbol& sym,
 
     if (map_iter == named_values().end()) {
         bool has_derivs = sym.has_derivs();
-        bool is_float = sym.typespec().is_floatbased();
         int num_components = sym.typespec().simpletype().aggregate;
         int total_size = num_components * (has_derivs ? 3 : 1);
         llvm::IRBuilder<> tmp_builder (&f->getEntryBlock(), f->getEntryBlock().begin());
@@ -383,9 +382,9 @@ RuntimeOptimizer::getOrAllocateLLVMSymbol (const Symbol& sym,
         llvm::AllocaInst* allocation = 0;
         if (total_size == 1) {
             llvm::ConstantInt* type_len = llvm::ConstantInt::get(llvm_context(), llvm::APInt(32, total_size));
-            allocation = tmp_builder.CreateAlloca((is_float) ? llvm_type_float() : llvm_type_int(), type_len, mangled_name.c_str());
+            allocation = tmp_builder.CreateAlloca(llvm_type(sym.typespec().simpletype()), type_len, mangled_name.c_str());
         } else {
-            std::vector<const llvm::Type*> types(total_size, (is_float) ? llvm_type_float() : llvm_type_int());
+            std::vector<const llvm::Type*> types(total_size, llvm_type(sym.typespec().simpletype()));
             llvm::StructType* struct_type = llvm::StructType::get(llvm_context(), types);
             llvm::ConstantInt* num_structs = llvm::ConstantInt::get(llvm_context(), llvm::APInt(32, 1));
             allocation = tmp_builder.CreateAlloca(struct_type, num_structs, mangled_name.c_str());
