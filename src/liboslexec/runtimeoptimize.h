@@ -336,6 +336,8 @@ public:
     const llvm::PointerType *llvm_type_string() { return m_llvm_type_char_ptr; }
     const llvm::PointerType *llvm_type_float_ptr() { return m_llvm_type_float_ptr; }
 
+    void llvm_do_optimization ();
+
 private:
     ShadingSystemImpl &m_shadingsys;
     ShaderGroup &m_group;             ///< Group we're optimizing
@@ -364,6 +366,7 @@ private:
     const llvm::Type *m_llvm_type_int;
     const llvm::Type *m_llvm_type_bool;
     const llvm::Type *m_llvm_type_void;
+    const llvm::Type *m_llvm_type_triple;
     const llvm::PointerType *m_llvm_type_char_ptr;
     const llvm::PointerType *m_llvm_type_float_ptr;
 

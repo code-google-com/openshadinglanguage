@@ -27,10 +27,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include "llvm_headers.h"
+#include <llvm/Analysis/Verifier.h>
+#include <llvm/Transforms/Scalar.h>
+#include <llvm/Transforms/IPO.h>
+#include <llvm/Transforms/Utils/UnifyFunctionExitNodes.h>
+
 #include "oslexec_pvt.h"
 #include "oslops.h"
 #include "../liboslcomp/oslcomp_pvt.h"
 #include "runtimeoptimize.h"
+
+
+extern int osl_llvm_compiled_ops_size;
+extern char osl_llvm_compiled_ops_block[];
 
 using namespace OSL;
 using namespace OSL::pvt;
@@ -98,7 +107,8 @@ typedef bool (*OpLLVMGen) (LLVMGEN_ARGS);
 
 /// Table of all functions that we may call from the LLVM-compiled code.
 /// Alternating name and argument list, much like we use in oslc's type
-/// checking.
+/// checking.  Note that nothing that's compiled into llvm_ops.cpp ought
+/// to need a declaration here.
 static const char *llvm_helper_function_table[] = {
     "fabsf", "ff",
 
@@ -108,13 +118,6 @@ static const char *llvm_helper_function_table[] = {
     "osl_add_closure_closure", "xCCC",
     "osl_mul_closure_float", "xCCf",
     "osl_mul_closure_color", "xCCc",
-    "osl_mul_mm", "xmmm",
-    "osl_mul_mf", "xmmf",
-    "osl_mul_m_ff", "xmff",
-    "osl_div_mm", "xmmm",
-    "osl_div_mf", "xmmf",
-    "osl_div_fm", "xmfm",
-    "osl_div_m_ff", "xmff",
     NULL
 };
 
@@ -301,7 +304,9 @@ RuntimeOptimizer::llvm_type (const TypeSpec &typespec)
         return llvm_type_int();
     if (t == TypeDesc::STRING)
         return llvm_type_string();
-    if (t.aggregate == 3 || t.aggregate == 16)
+    if (t.aggregate == 3)
+        return llvm_type_float_ptr();
+    if (t.aggregate == 16)
         return llvm_type_float_ptr();
     if (t == TypeDesc::NONE)
         return llvm_type_void();
@@ -324,24 +329,6 @@ RuntimeOptimizer::llvm_zero_derivs (Symbol &sym)
         for (int i = 0;  i < num_components;  ++i)
             storeLLVMValue (zero, sym, i, 2);  // clear dy
     }
-}
-
-
-
-extern "C" void
-osl_printf (const char* format_str, ...)
-{
-    // FIXME -- no, no, we need to take a ShadingSys ref and go through
-    // the preferred output mechanisms.
-    va_list args;
-    va_start (args, format_str);
-#if 0
-    // Make super sure we know we are excuting LLVM-generated code!
-    std::string newfmt = std::string("llvm: ") + format_str;
-    format_str = newfmt.c_str();
-#endif
-    vprintf (format_str, args);
-    va_end (args);
 }
 
 
@@ -384,7 +371,8 @@ RuntimeOptimizer::getOrAllocateLLVMSymbol (const Symbol& sym,
             llvm::ConstantInt* type_len = llvm::ConstantInt::get(llvm_context(), llvm::APInt(32, total_size));
             allocation = tmp_builder.CreateAlloca(llvm_type(sym.typespec().simpletype()), type_len, mangled_name.c_str());
         } else {
-            std::vector<const llvm::Type*> types(total_size, llvm_type(sym.typespec().simpletype()));
+            TypeDesc basetype = TypeDesc::BASETYPE(sym.typespec().simpletype().basetype);;
+            std::vector<const llvm::Type*> types(total_size, llvm_type(basetype));
             llvm::StructType* struct_type = llvm::StructType::get(llvm_context(), types);
             llvm::ConstantInt* num_structs = llvm::ConstantInt::get(llvm_context(), llvm::APInt(32, 1));
             allocation = tmp_builder.CreateAlloca(struct_type, num_structs, mangled_name.c_str());
@@ -565,12 +553,6 @@ llvm::Value *
 RuntimeOptimizer::llvm_call_function (const char *name,
                                       llvm::Value **args, int nargs)
 {
-    const char *argcodes = NULL;
-    for (int i = 0;  llvm_helper_function_table[i];  i += 2)
-        if (! strcmp (name, llvm_helper_function_table[i]))
-            argcodes = llvm_helper_function_table[i+1];
-    ASSERT (argcodes != NULL && "unfound external function");
-
     llvm::Function *func = llvm_module()->getFunction (name);
     return builder().CreateCall (func, args, args+nargs);
 }
@@ -1184,86 +1166,6 @@ LLVMGEN (llvm_gen_unary_op)
 
 
 
-extern "C" void
-osl_closure_clear (ClosureColor *r, float f)
-{
-    r->clear ();
-}
-
-extern "C" void
-osl_closure_assign (ClosureColor *r, ClosureColor *x)
-{
-    *r = *x;
-}
-
-extern "C" void
-osl_add_closure_closure (ClosureColor *r, ClosureColor *a, ClosureColor *b)
-{
-    r->add (*a, *b);
-}
-
-extern "C" void
-osl_mul_closure_float (ClosureColor *r, ClosureColor *a, float b)
-{
-    *r = *a;
-    *r *= b;
-}
-
-extern "C" void
-osl_mul_closure_color (ClosureColor *r, ClosureColor *a, Color3 *b)
-{
-    *r = *a;
-    *r *= *b;
-}
-
-
-extern "C" void
-osl_mul_mm (Matrix44 *r, Matrix44 *a, Matrix44 *b)
-{
-    *r = (*a) * (*b);
-}
-
-extern "C" void
-osl_mul_mf (Matrix44 *r, Matrix44 *a, float b)
-{
-    *r = (*a) * b;
-}
-
-extern "C" void
-osl_mul_m_ff (Matrix44 *r, float a, float b)
-{
-    float f = a * b;
-    *r = Matrix44 (f,0,0,0, 0,f,0,0, 0,0,f,0, 0,0,0,f);
-}
-
-extern "C" void
-osl_div_mm (Matrix44 *r, Matrix44 *a, Matrix44 *b)
-{
-    *r = (*a) * b->inverse();
-}
-
-extern "C" void
-osl_div_mf (Matrix44 *r, Matrix44 *a, float b)
-{
-    *r = (*a) * (1.0f/b);
-}
-
-extern "C" void
-osl_div_fm (Matrix44 *r, float a, Matrix44 *b)
-{
-    *r = a * b->inverse();
-}
-
-extern "C" void
-osl_div_m_ff (Matrix44 *r, float a, float b)
-{
-    float f = (b == 0) ? 0.0f : (a / b);
-    *r = Matrix44 (f,0,0,0, 0,f,0,0, 0,0,f,0, 0,0,0,f);
-}
-
-
-
-
 // Simple assignment
 LLVMGEN (llvm_gen_assign)
 {
@@ -1276,19 +1178,13 @@ LLVMGEN (llvm_gen_assign)
             ! Src.typespec().is_array());
 
     if (Result.typespec().is_closure() || Src.typespec().is_closure()) {
-        llvm::Value* call_args[2];
-        int nargs = 0;
-        const char *funcname;
-        call_args[nargs++] = rop.loadLLVMValue (Result);
-        call_args[nargs++] = rop.loadLLVMValue (Src);
         if (Src.typespec().is_closure())
-            funcname = "osl_closure_clear";
+            rop.llvm_call_function ("osl_closure_assign", Result, Src);
         else
-            funcname = "osl_closure_assign";
-        rop.llvm_call_function (funcname, call_args, nargs);
-        return false;
+            rop.llvm_call_function ("osl_closure_clear", Result);
+        return true;
     }
-    
+
     if (Result.typespec().is_matrix() && Src.typespec().is_int_or_float()) {
         // Handle m=f, m=i separately
         llvm::Value *src = rop.loadLLVMValue (Src, 0, 0, TypeDesc::FLOAT /*cast*/);
@@ -1983,7 +1879,7 @@ RuntimeOptimizer::build_llvm_version ()
     llvm::errs() << "layer_func (" << unique_layer_name << ") after llvm  = " << *m_layer_func << "\n";
 
     // Now optimize the result
-    shadingsys().FunctionOptimizer()->run(*m_layer_func);
+    llvm_do_optimization ();
 
     llvm::errs() << "layer_func (" << unique_layer_name << ") after opt  = " << *m_layer_func << "\n";
 
@@ -2008,6 +1904,8 @@ RuntimeOptimizer::initialize_llvm_stuff ()
     m_llvm_type_char_ptr = llvm::Type::getInt8PtrTy (*m_llvm_context);
     m_llvm_type_float_ptr = llvm::Type::getFloatPtrTy (*m_llvm_context);
 
+    std::vector<const llvm::Type*> triple(3, m_llvm_type_float);
+    m_llvm_type_triple = llvm::StructType::get(llvm_context(), triple);
 
     // Now we have things we only need to do once for each context.
     static spin_mutex mutex;
@@ -2078,8 +1976,18 @@ ShadingSystemImpl::SetupLLVM ()
     info ("Initializing Native Target");
     llvm::InitializeNativeTarget();
 
+#if 1
     //printf("Loading LLVM Bitcode\n");
+    const char *data = osl_llvm_compiled_ops_block;
+    llvm::MemoryBuffer *buf =
+        llvm::MemoryBuffer::getMemBuffer (data, data + osl_llvm_compiled_ops_size);
+    // Parse the bitcode into a Module
+    std::string err;
+    m_llvm_module = llvm::ParseBitcodeFile (buf, *llvm_context(), &err);
+    delete buf;
+#else
     m_llvm_module = new llvm::Module ("oslmodule", *llvm_context());
+#endif
 
     info ("Building an Execution Engine");
     std::string error_msg;
@@ -2093,56 +2001,55 @@ ShadingSystemImpl::SetupLLVM ()
         return;
     }
 
-    //shadingsys().info ("Disabling lazy JIT\n");
-    //m_llvm_exec->DisableLazyCompilation();
-    info ("Setting up pass managers");
-    SetupLLVMOptimizer();
-    //IPOOptimizer()->run(*all_ops);
-    //shadingsys().info ("LLVM ready!\n");
-
     initialize_llvm_generator_table ();
 }
 
 
 
 void
-ShadingSystemImpl::SetupLLVMOptimizer ()
+RuntimeOptimizer::llvm_do_optimization ()
 {
-    //m_opt_ipo = new PassManager();
-    //m_opt_ipo->add(llvm::createFunctionInliningPass(2000));
+    llvm::PassManager passes;
+    passes.add (new llvm::TargetData(llvm_module()));
+    llvm::FunctionPassManager fpm (llvm_module());
+    fpm.add (new llvm::TargetData(llvm_module())); // *(m_shadingsys.ExecutionEngine()->getTargetData())));
+    // FIXME -- will this leak the TargetData?
 
-    info ("Making FunctionPassManager");
-    m_llvm_opt_function = new llvm::FunctionPassManager(m_llvm_module);
-    info ("Adding TargetInfo");
-    m_llvm_opt_function->add (new llvm::TargetData(*(m_llvm_exec->getTargetData())));
     // Now change things to registers
-    info ("Adding mem2reg");
-    m_llvm_opt_function->add (llvm::createPromoteMemoryToRegisterPass());
-    // Combine instructions where possible
-    info ("Adding instcomb");
-    m_llvm_opt_function->add (llvm::createInstructionCombiningPass());
+    fpm.add (llvm::createPromoteMemoryToRegisterPass());
+    // Combine instructions where possible -- peephole opts & bit-twiddling
+    fpm.add (llvm::createInstructionCombiningPass());
+    // Eliminate early returns
+    fpm.add (llvm::createUnifyFunctionExitNodesPass());
+    // Inline small functions
+    passes.add (llvm::createFunctionInliningPass());
     // resassociate exprssions (a = x + (3 + y) -> a = x + y + 3)
-    info ("Adding reassoc");
-    m_llvm_opt_function->add (llvm::createReassociatePass());
-    // eliminate common sub-expressions
-    info ("Adding gvn");
-    m_llvm_opt_function->add (llvm::createGVNPass());
-    // Simplify the call graph if possible
-    info ("Adding simpcfg");
-    m_llvm_opt_function->add (llvm::createCFGSimplificationPass());
-
-    info ("Adding DCE");
-    m_llvm_opt_function->add (llvm::createAggressiveDCEPass());
+    fpm.add (llvm::createReassociatePass());
+    // Eliminate common sub-expressions
+    fpm.add (llvm::createGVNPass());
+    // Simplify the call graph if possible (deleting unreachable blocks, etc.)
+    fpm.add (llvm::createCFGSimplificationPass());
+    // More dead code elimination
+    fpm.add (llvm::createAggressiveDCEPass());
     // Try to make stuff into registers one last time.
-    info ("Adding mem2reg (again)");
-    m_llvm_opt_function->add (llvm::createPromoteMemoryToRegisterPass());
-
+    fpm.add (llvm::createPromoteMemoryToRegisterPass());
     // Always add verifier?
-    info ("Adding verifier");
-    m_llvm_opt_function->add (llvm::createVerifierPass());
+    fpm.add (llvm::createVerifierPass());
 
-    info ("Performing init");
-    m_llvm_opt_function->doInitialization();
+    fpm.doInitialization();
+
+    // Run function passes on all functions in the module.
+    for (llvm::Module::iterator i = llvm_module()->begin(); i != llvm_module()->end(); ++i)
+        fpm.run (*i);
+
+    // Run module-wide (interprocedural optimization) passes
+    passes.add (llvm::createVerifierPass());
+    passes.run (*llvm_module());
+
+    // Since the passes above inlined function calls, among other
+    // things, we should rerun our whole optimization set on the master
+    // function now.
+    fpm.run(*m_layer_func);
 }
 
 

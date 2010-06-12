@@ -133,11 +133,8 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
       m_commonspace_synonym("world"),
       m_in_group (false),
       m_global_heap_total (0),
-      m_llvm_linker (NULL),
       m_llvm_module (NULL),
-      m_llvm_exec (NULL),
-      m_llvm_opt_function (NULL),
-      m_llvm_opt_ipo (NULL)
+      m_llvm_exec (NULL)
 {
     m_stat_shaders_loaded = 0;
     m_stat_shaders_requested = 0;

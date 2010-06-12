@@ -591,11 +591,7 @@ private:
         return p;
     }
 
-    void SetupLLVMOptimizer ();
     void SetupLLVM ();
-    llvm::FunctionPassManager* FunctionOptimizer () { return m_llvm_opt_function; }
-    llvm::PassManager* IPOOptimizer () { return m_llvm_opt_ipo; }
-
 
     RendererServices *m_renderer;         ///< Renderer services
     TextureSystem *m_texturesys;          ///< Texture system
@@ -665,11 +661,8 @@ private:
 
     // LLVM stuff
     llvm::LLVMContext *m_llvm_context;
-    llvm::Linker *m_llvm_linker;
     llvm::Module *m_llvm_module;
     llvm::ExecutionEngine *m_llvm_exec;
-    llvm::FunctionPassManager *m_llvm_opt_function;
-    llvm::PassManager *m_llvm_opt_ipo;
 
     friend class ShadingContext;
     friend class ShaderInstance;

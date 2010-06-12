@@ -36,7 +36,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <llvm/ExecutionEngine/JIT.h>
 #include <llvm/Instructions.h>
 #include <llvm/Intrinsics.h>
-#include <llvm/Analysis/Verifier.h>
 #include <llvm/Linker.h>
 #include <llvm/LLVMContext.h>
 #include <llvm/Module.h>
@@ -48,8 +47,5 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <llvm/System/Path.h>
 #include <llvm/Target/TargetData.h>
 #include <llvm/Target/TargetSelect.h>
-#include <llvm/Transforms/Scalar.h>
-#include <llvm/Transforms/IPO.h>
-
 
 #endif OSL_LLVM_HEADERS_H
