@@ -53,8 +53,11 @@ namespace pvt {
 
 
 static ustring op_abs("abs");
+static ustring op_bitand("bitand");
+static ustring op_bitor("bitor");
 static ustring op_ceil("ceil");
 static ustring op_color("color");
+static ustring op_compl("compl");
 static ustring op_compref("compref");
 static ustring op_cos("cos");
 static ustring op_cross("cross");
@@ -84,10 +87,13 @@ static ustring op_neq("neq");
 static ustring op_nop("nop");
 static ustring op_normalize("normalize");
 static ustring op_printf("printf");
+static ustring op_shl("shl");
+static ustring op_shr("shr");
 static ustring op_sin("sin");
 static ustring op_sqrt("sqrt");
 static ustring op_vector("vector");
 static ustring op_while("while");
+static ustring op_xor("xor");
 
 
 
@@ -1088,6 +1094,38 @@ LLVMGEN (llvm_gen_mod)
 
 
 
+LLVMGEN (llvm_gen_bitwise_binary_op)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& A = *rop.opargsym (op, 1);
+    Symbol& B = *rop.opargsym (op, 2);
+    ASSERT (Result.typespec().is_int() && A.typespec().is_int() && 
+            B.typespec().is_int());
+
+    llvm::Value *a = rop.loadLLVMValue (A);
+    llvm::Value *b = rop.loadLLVMValue (B);
+    if (!a || !b)
+        return false;
+    llvm::Value *r = NULL;
+    if (op.opname() == op_bitand)
+        r = rop.builder().CreateAnd (a, b);
+    else if (op.opname() == op_bitor)
+        r = rop.builder().CreateOr (a, b);
+    else if (op.opname() == op_xor)
+        r = rop.builder().CreateXor (a, b);
+    else if (op.opname() == op_shl)
+        r = rop.builder().CreateShl (a, b);
+    else if (op.opname() == op_shr)
+        r = rop.builder().CreateAShr (a, b);  // signed int -> arithmetic shift
+    else
+        return false;
+    rop.storeLLVMValue (r, Result);
+    return true;
+}
+
+
+
 // Simple (pointwise) unary ops (Neg, Abs, Sqrt, Ceil, Floor, ..., Log2,
 // Log10, Erf, Erfc, IsNan/IsInf/IsFinite)
 LLVMGEN (llvm_gen_unary_op)
@@ -1119,6 +1157,9 @@ LLVMGEN (llvm_gen_unary_op)
 
         if (opname == op_neg) {
             result = (src_float) ? rop.builder().CreateFNeg(src_val) : rop.builder().CreateNeg(src_val);
+        } if (opname == op_compl) {
+            ASSERT (dst.typespec().is_int());
+            result = rop.builder().CreateNot(src_val);
         } else if (opname == op_abs ||
                    opname == op_fabs) {
             if (src_float) {
@@ -1761,6 +1802,11 @@ initialize_llvm_generator_table ()
     INIT (mul);
     INIT (div);
     INIT (mod);
+    INIT2 (bitand, llvm_gen_bitwise_binary_op);
+    INIT2 (bitor, llvm_gen_bitwise_binary_op);
+    INIT2 (xor, llvm_gen_bitwise_binary_op);
+    INIT2 (shl, llvm_gen_bitwise_binary_op);
+    INIT2 (shr, llvm_gen_bitwise_binary_op);
     INIT (dot);
     INIT (cross);
     INIT (normalize);
@@ -1772,6 +1818,7 @@ initialize_llvm_generator_table ()
     INIT2 (gt, llvm_gen_compare_op);
     INIT2 (ge, llvm_gen_compare_op);
     INIT2 (neg, llvm_gen_unary_op);
+    INIT2 (compl, llvm_gen_unary_op);
     INIT2 (abs, llvm_gen_unary_op);
     INIT2 (fabs, llvm_gen_unary_op);
     INIT2 (sqrt, llvm_gen_unary_op);
