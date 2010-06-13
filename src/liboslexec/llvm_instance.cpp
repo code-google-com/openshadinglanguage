@@ -124,6 +124,9 @@ static const char *llvm_helper_function_table[] = {
     "osl_add_closure_closure", "xCCC",
     "osl_mul_closure_float", "xCCf",
     "osl_mul_closure_color", "xCCc",
+
+//    "osl_regex_impl", "iVsi[]isii",
+
     NULL
 };
 
@@ -1326,7 +1329,7 @@ LLVMGEN (llvm_gen_compref)
 
 
 // Simple aggregate constructor (no conversion)
-LLVMGEN (llvm_gen_construct_aggregate)
+LLVMGEN (llvm_gen_construct_triple)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& dst = *rop.opargsym (op, 0);
@@ -1343,23 +1346,13 @@ LLVMGEN (llvm_gen_construct_aggregate)
     bool dst_derivs = dst.has_derivs();
     int num_components = dst.typespec().simpletype().aggregate;
 
-    bool dst_float = dst.typespec().is_floatbased();
-
     for (int i = 0; i < num_components; i++) {
         const Symbol& src = *src_syms[i];
-        bool src_float = src.typespec().is_floatbased();
         // Get src component 0 (it should be a scalar)
-        llvm::Value* src_val = rop.loadLLVMValue (src, 0, 0);
-        if (!src_val) return false;
+        llvm::Value* src_val = rop.loadLLVMValue (src, 0, 0, TypeDesc::TypeFloat);
+        if (!src_val)
+            return false;
 
-        // Perform the assignment
-        if (dst_float && !src_float) {
-            // need int -> float
-            src_val = rop.builder().CreateSIToFP(src_val, rop.llvm_type_float());
-        } else if (!dst_float && src_float) {
-            // float -> int
-            src_val = rop.builder().CreateFPToSI(src_val, rop.llvm_type_int());
-        }
         rop.storeLLVMValue (src_val, dst, i, 0);
 
         if (dst_derivs) {
@@ -1824,8 +1817,10 @@ initialize_llvm_generator_table ()
     INIT2 (sqrt, llvm_gen_unary_op);
     INIT2 (sin, llvm_gen_unary_op);
     INIT2 (cos, llvm_gen_unary_op);
-    INIT2 (vector, llvm_gen_construct_aggregate);
-    INIT2 (color, llvm_gen_construct_aggregate);
+    INIT2 (point, llvm_gen_construct_triple);
+    INIT2 (vector, llvm_gen_construct_triple);
+    INIT2 (normal, llvm_gen_construct_triple);
+    INIT2 (color, llvm_gen_construct_triple);
     INIT2 (length, llvm_gen_unary_reduction);
     INIT2 (luminance, llvm_gen_unary_reduction);
     INIT (if);
@@ -1850,13 +1845,14 @@ RuntimeOptimizer::build_llvm_version ()
     llvm::Module *all_ops (m_llvm_module);
     m_named_values.clear ();
 
-    // I'd like our new function to take just a ShaderGlobals...
+    // Make a layer function: void layer_func(ShaderGlobal*, ShadingContext*)
+    // Note that the ShadingContext* is passed as a void*.
     char unique_layer_name[1024];
     sprintf (unique_layer_name, "%s_%d", inst()->layername().c_str(), inst()->id());
+
     const llvm::StructType* sg_type = getShaderGlobalType ();
     llvm::PointerType* sg_ptr_type = llvm::PointerType::get(sg_type, 0 /* Address space */);
-    // Make a layer function: void layer_func(ShaderGlobal*)
-    m_layer_func = llvm::cast<llvm::Function>(all_ops->getOrInsertFunction(unique_layer_name, llvm_type_void(), sg_ptr_type, NULL));
+    m_layer_func = llvm::cast<llvm::Function>(all_ops->getOrInsertFunction(unique_layer_name, llvm_type_void(), sg_ptr_type, llvm_type_void_ptr(), NULL));
     const OpcodeVec& instance_ops (inst()->ops());
     llvm::Function::arg_iterator arg_it = m_layer_func->arg_begin();
     // Get shader globals pointer

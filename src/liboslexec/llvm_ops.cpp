@@ -32,8 +32,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "oslconfig.h"
 #include "oslclosure.h"
-
 using namespace OSL;
+
+#include <OpenEXR/ImathFun.h>
+
 
 
 extern "C" void
@@ -129,4 +131,52 @@ osl_div_m_ff (Matrix44 *r, float a, float b)
 {
     float f = (b == 0) ? 0.0f : (a / b);
     *r = Matrix44 (f,0,0,0, 0,f,0,0, 0,0,f,0, 0,0,0,f);
+}
+
+
+
+// String ops
+
+// Handy re-cast the incoming const char* as a ustring& (which we know it
+// is).
+#define USTR(cstr) (*((ustring *)&cstr))
+
+// Only define 2-arg version of concat, sort it out upstream
+extern "C" const char *
+osl_concat (const char *s, const char *t)
+{
+    return ustring::format("%s%s", s, t).c_str();
+}
+
+extern "C" int
+osl_strlen (const char *s)
+{
+    return (int) USTR(s).length();
+}
+
+extern "C" int
+osl_startswith (const char *s, const char *substr)
+{
+    return strncmp (s, substr, USTR(substr).length()) == 0;
+}
+
+extern "C" int
+osl_endswith (const char *s, const char *substr)
+{
+    size_t len = USTR(substr).length();
+    if (len > USTR(s).length())
+        return 0;
+    else
+        return strncmp (s+USTR(s).length()-len, substr, len);
+}
+
+extern "C" const char *
+osl_substr (const char *s, int start, int length)
+{
+    int slen = (int) USTR(s).length();
+    int b = start;
+    if (b < 0)
+        b += slen;
+    b = Imath::clamp (b, 0, slen);
+    return ustring(s, b, Imath::clamp (length, 0, slen)).c_str();
 }
