@@ -1224,29 +1224,25 @@ private:
 
 
 struct SingleShaderGlobal {
-  Vec3 P;                ///< Position
-  Vec3 dPdx, dPdy;       ///< Partials
-  Vec3 I;                ///< Incident ray
-  Vec3 dIdx, dIdy;       ///< Partial derivatives for I
-  Vec3 N;                ///< Shading normal
-  Vec3 Ng;               ///< True geometric normal
-  float u, v;            ///< Surface parameters
-  float dudx, dudy;      ///< u differentials
-  float dvdx, dvdy;      ///< v differentials
-  Vec3 dPdu, dPdv;       ///< Partial derivatives
-  float time;            ///< Time for each sample
-  float dtime;           ///< Time interval for each sample
-  Vec3 dPdtime;          ///< Velocity
-  Vec3 Ps;               ///< Point being lit
-  Vec3 dPsdx, dPsdy;     ///< Derivs of Ps
-  void* renderstate;    ///< Renderer context for each sample
-  TransformationPtr object2common; /// Object->common xform
-  TransformationPtr shader2common; /// Shader->common xform
-  ClosureColor* Ci;     ///< Output colors
-  float surfacearea;     ///< Total area of the object (not exposed)
-  bool iscameraray;                  ///< True if computing for camera ray
-  bool isshadowray;                  ///< True if computing for shadow opacity
-  bool flipHandedness;               ///< flips the result of calculatenormal()
+    Vec3 P, dPdx, dPdy;    ///< Position
+    Vec3 I, dIdx, dIdy;    ///< Incident ray
+    Vec3 N;                ///< Shading normal
+    Vec3 Ng;               ///< True geometric normal
+    float u, dudx, dudy;   ///< Surface parameter u
+    float v, dvdx, dvdy;   ///< Surface parameter v
+    Vec3 dPdu, dPdv;       ///< Tangents on the surface
+    float time;            ///< Time for each sample
+    float dtime;           ///< Time interval for each sample
+    Vec3 dPdtime;          ///< Velocity
+    Vec3 Ps, dPsdx, dPsdy; ///< Point being lit
+    void* renderstate;     ///< Renderer context for each sample
+    TransformationPtr object2common; /// Object->common xform
+    TransformationPtr shader2common; /// Shader->common xform
+    ClosureColor* Ci;      ///< Output colors
+    float surfacearea;     ///< Total area of the object (not exposed)
+    int iscameraray;       ///< True if computing for camera ray
+    int isshadowray;       ///< True if computing for shadow opacity
+    int flipHandedness;    ///< flips the result of calculatenormal()
 };
 
 namespace Strings {

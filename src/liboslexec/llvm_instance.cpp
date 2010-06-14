@@ -135,48 +135,32 @@ static const char *llvm_helper_function_table[] = {
 const llvm::StructType *
 RuntimeOptimizer::getShaderGlobalType ()
 {
-    std::vector<const llvm::Type*> vec3_types(3, llvm_type_float());
-    const llvm::StructType* vec3_type = llvm::StructType::get(llvm_context(), vec3_types);
-    // NOTE(boulos): Bool is a C++ concept that maps to int in C.
-    const llvm::Type* bool_type = llvm_type_int();
-
+    // Derivs look like arrays of 3 values
+    const llvm::Type *float_deriv = llvm_type (TypeDesc(TypeDesc::FLOAT, TypeDesc::SCALAR, 3));
+    const llvm::Type *triple_deriv = llvm_type (TypeDesc(TypeDesc::FLOAT, TypeDesc::VEC3, 3));
     std::vector<const llvm::Type*> sg_types;
-    // P, dPdx, dPdy, I, dIdx, dIdy, N, Ng
-    for (int i = 0; i < 8; i++) {
-        sg_types.push_back(vec3_type);
-    }
-    // u, v, dudx, dudy, dvdx, dvdy
-    for (int i = 0; i < 6; i++) {
-        sg_types.push_back(llvm_type_float());
-    }
-    // dPdu, dPdv
-    for (int i = 0; i < 2; i++) {
-        sg_types.push_back(vec3_type);
-    }
-    // time, dtime
-    for (int i = 0; i < 2; i++) {
-        sg_types.push_back(llvm_type_float());
-    }
-    // dPdtime, Ps, dPsdx, dPdsy
-    for (int i = 0; i < 4; i++) {
-        sg_types.push_back(vec3_type);
-    }
-    // void* renderstate, object2common, shader2common
-    for (int i = 0; i < 3; i++) {
-        sg_types.push_back(llvm_type_void_ptr());
-    }
-    // ClosureColor* (treat as void for now?)
-    for (int i = 0; i < 1; i++) {
-        sg_types.push_back(llvm_type_void_ptr());
-    }
-    // surfacearea
-    for (int i = 0; i < 1; i++) {
-        sg_types.push_back(llvm_type_float());
-    }
-    // iscameraray, isshadowray, flipHandedness
-    for (int i = 0; i < 3; i++) {
-        sg_types.push_back(bool_type);
-    }
+    sg_types.push_back (triple_deriv);        // P, dPdx, dPdy
+    sg_types.push_back (triple_deriv);        // I, dIdx, dIdy
+    sg_types.push_back (llvm_type_triple());  // N
+    sg_types.push_back (llvm_type_triple());  // Ng
+    sg_types.push_back (float_deriv);         // u, dudx, dudy
+    sg_types.push_back (float_deriv);         // v, dvdx, dvdy
+    sg_types.push_back (llvm_type_triple());  // dPdu
+    sg_types.push_back (llvm_type_triple());  // dPdv
+    sg_types.push_back (llvm_type_float());   // time
+    sg_types.push_back (llvm_type_float());   // dtime
+    sg_types.push_back (llvm_type_triple());  // dPdtime
+    sg_types.push_back (triple_deriv);        // Ps
+
+    sg_types.push_back(llvm_type_void_ptr()); // renderstate
+    sg_types.push_back(llvm_type_void_ptr()); // object2common
+    sg_types.push_back(llvm_type_void_ptr()); // shader2common
+    sg_types.push_back(llvm_type_void_ptr()); // Ci
+
+    sg_types.push_back (llvm_type_float());   // surfacearea
+    sg_types.push_back (llvm_type_int());     // iscameraray
+    sg_types.push_back (llvm_type_int());     // isshadowray
+    sg_types.push_back (llvm_type_int());     // flipHandedness
 
     return llvm::StructType::get (llvm_context(), sg_types);
 }
@@ -186,61 +170,53 @@ RuntimeOptimizer::getShaderGlobalType ()
 /// Convert the name of a global (and its derivative index) into the
 /// field number of the ShaderGlobals struct.
 static int
-ShaderGlobalNameToIndex (ustring name, int deriv)
+ShaderGlobalNameToIndex (ustring name)
 {
-    int sg_index = -1;
-    if (name == Strings::P) {
-        switch (deriv) {
-        case 0: sg_index = 0; break; // P
-        case 1: sg_index = 1; break; // dPdx
-        case 2: sg_index = 2; break; // dPdy
-        default: break;
-        }
-    } else if (name == Strings::I) {
-        switch (deriv) {
-        case 0: sg_index = 3; break; // I
-        case 1: sg_index = 4; break; // dIdx
-        case 2: sg_index = 5; break; // dIdy
-        default: break;
-        }
-    } else if (name == Strings::N) {
-        sg_index = 6;
-    } else if (name == Strings::Ng) {
-        sg_index = 7;
-    } else if (name == Strings::u) {
-        switch (deriv) {
-        case 0: sg_index = 8; break; // u
-        case 1: sg_index = 10; break; // dudx
-        case 2: sg_index = 11; break; // dudy
-        default: break;
-        }
-    } else if (name == Strings::v) {
-        switch (deriv) {
-        case 0: sg_index = 9; break; // v
-        case 1: sg_index = 12; break; // dvdx
-        case 2: sg_index = 13; break; // dvdy
-        default: break;
-        }
-        //extern ustring P, I, N, Ng, dPdu, dPdv, u, v, time, dtime, dPdtime, Ps;
-    } else if (name == Strings::dPdu) {
-        sg_index = 14;
-    } else if (name == Strings::dPdv) {
-        sg_index = 15;
-    } else if (name == Strings::time) {
-        sg_index = 16;
-    } else if (name == Strings::dtime) {
-        sg_index = 17;
-    } else if (name == Strings::dPdtime) {
-        sg_index = 18;
-    } else if (name == Strings::Ps) {
-        switch (deriv) {
-        case 0: sg_index = 19; break; // Ps
-        case 1: sg_index = 20; break; // dPsdx
-        case 2: sg_index = 21; break; // dPsdy
-        default: break;
-        }
-    }
-    return sg_index;
+    if (name == Strings::P)
+        return 0;
+    if (name == Strings::I)
+        return 1;
+    if (name == Strings::N)
+        return 2;
+    if (name == Strings::Ng)
+        return 3;
+    if (name == Strings::u)
+        return 4;
+    if (name == Strings::v)
+        return 5;
+    if (name == Strings::dPdu)
+        return 6;
+    if (name == Strings::dPdv)
+        return 7;
+    if (name == Strings::time)
+        return 8;
+    if (name == Strings::dtime)
+        return 9;
+    if (name == Strings::dPdtime)
+        return 10;
+    if (name == Strings::Ps)
+        return 11;
+#if 0
+    if (name == Strings::renderstate)
+        return 12;
+    if (name == Strings::object2common)
+        return 13;
+    if (name == Strings::shader2common)
+        return 14;
+#endif
+    if (name == Strings::Ci)
+        return 15;
+#if 0
+    if (name == Strings::surfacearea)
+        return 16;
+    if (name == Strings::iscameraray)
+        return 17;
+    if (name == Strings::isshadowray)
+        return 18;
+    if (name == Strings::flipHandedness)
+        return 19;
+#endif
+    return -1;
 }
 
 
@@ -250,9 +226,6 @@ SkipSymbol (const Symbol& s)
 {
     if (s.symtype() == SymTypeOutputParam)
         return true;
-
-//    if (s.typespec().simpletype().basetype == TypeDesc::STRING)
-//        return true;
 
     if (s.typespec().is_closure())
         return true;
@@ -306,22 +279,58 @@ RuntimeOptimizer::llvm_type (const TypeSpec &typespec)
 {
     if (typespec.is_closure())
         return llvm_type_void_ptr();
-    TypeDesc t = typespec.simpletype();
+    TypeDesc t = typespec.simpletype().elementtype();
+    const llvm::Type *lt = NULL;
     if (t == TypeDesc::FLOAT)
-        return llvm_type_float();
-    if (t == TypeDesc::INT)
-        return llvm_type_int();
-    if (t == TypeDesc::STRING)
-        return llvm_type_string();
-    if (t.aggregate == 3)
-        return llvm_type_float_ptr();
-    if (t.aggregate == 16)
-        return llvm_type_float_ptr();
-    if (t == TypeDesc::NONE)
-        return llvm_type_void();
-    std::cerr << "Bad llvm_type(" << typespec.c_str() << ")\n";
-    ASSERT (0 && "not handling this type yet");
-    return NULL;
+        lt = llvm_type_float();
+    else if (t == TypeDesc::INT)
+        lt = llvm_type_int();
+    else if (t == TypeDesc::STRING)
+        lt = llvm_type_string();
+    else if (t.aggregate == TypeDesc::VEC3)
+        lt = llvm_type_triple();
+    else if (t.aggregate == TypeDesc::MATRIX44)
+        lt = llvm_type_matrix();
+    else if (t == TypeDesc::NONE)
+        lt = llvm_type_void();
+    else {
+        std::cerr << "Bad llvm_type(" << typespec.c_str() << ")\n";
+        ASSERT (0 && "not handling this type yet");
+    }
+    if (typespec.is_array())
+        lt = llvm::ArrayType::get (lt, typespec.simpletype().numelements());
+    return lt;
+}
+
+
+
+const llvm::Type *
+RuntimeOptimizer::llvm_pass_type (const TypeSpec &typespec)
+{
+    if (typespec.is_closure())
+        return llvm_type_void_ptr();
+    TypeDesc t = typespec.simpletype().elementtype();
+    const llvm::Type *lt = NULL;
+    if (t == TypeDesc::FLOAT)
+        lt = llvm_type_float();
+    else if (t == TypeDesc::INT)
+        lt = llvm_type_int();
+    else if (t == TypeDesc::STRING)
+        lt = llvm_type_string();
+    else if (t.aggregate == TypeDesc::VEC3)
+        lt = llvm_type_triple_ptr();
+    else if (t.aggregate == TypeDesc::MATRIX44)
+        lt = llvm_type_matrix_ptr();
+    else if (t == TypeDesc::NONE)
+        lt = llvm_type_void();
+    else {
+        std::cerr << "Bad llvm_pass_type(" << typespec.c_str() << ")\n";
+        ASSERT (0 && "not handling this type yet");
+    }
+    if (t.arraylen) {
+        ASSERT (0 && "should never pass an array directly as a parameter");
+    }
+    return lt;
 }
 
 
@@ -349,6 +358,17 @@ llvm::Value *
 RuntimeOptimizer::getLLVMSymbolBase (const Symbol &sym)
 {
     Symbol* dealiased = sym.dealias();
+
+    if (sym.symtype() == SymTypeGlobal) {
+        // Special case for globals -- they live in the shader globals struct
+        int sg_index = ShaderGlobalNameToIndex (sym.name());
+        ASSERT (sg_index >= 0);
+        llvm::Value *result = builder().CreateConstGEP2_32 (sg_ptr(), 0, sg_index);
+        // No derivs?  We're one indirection too few?
+        result = builder().CreatePointerCast (result, llvm::PointerType::get(llvm_type(sym.typespec()), 0));
+        return result;
+    }
+
     std::string mangled_name = dealiased->mangled();
     AllocationMap::iterator map_iter = named_values().find (mangled_name);
     if (map_iter == named_values().end()) {
@@ -370,63 +390,20 @@ RuntimeOptimizer::getOrAllocateLLVMSymbol (const Symbol& sym,
     AllocationMap::iterator map_iter = named_values().find(mangled_name);
 
     if (map_iter == named_values().end()) {
-        bool has_derivs = sym.has_derivs();
-        int num_components = sym.typespec().simpletype().aggregate;
-        int total_size = num_components * (has_derivs ? 3 : 1);
         llvm::IRBuilder<> tmp_builder (&f->getEntryBlock(), f->getEntryBlock().begin());
-        //shadingsys().info ("Making a type with %d %ss for symbol '%s'\n", total_size, (is_float) ? "float" : "int", mangled_name.c_str());
-        llvm::AllocaInst* allocation = 0;
-        if (total_size == 1) {
-            llvm::ConstantInt* type_len = llvm::ConstantInt::get(llvm_context(), llvm::APInt(32, total_size));
-            allocation = tmp_builder.CreateAlloca(llvm_type(sym.typespec().simpletype()), type_len, mangled_name.c_str());
-        } else {
-            TypeDesc basetype = TypeDesc::BASETYPE(sym.typespec().simpletype().basetype);;
-            std::vector<const llvm::Type*> types(total_size, llvm_type(basetype));
-            llvm::StructType* struct_type = llvm::StructType::get(llvm_context(), types);
-            llvm::ConstantInt* num_structs = llvm::ConstantInt::get(llvm_context(), llvm::APInt(32, 1));
-            allocation = tmp_builder.CreateAlloca(struct_type, num_structs, mangled_name.c_str());
-        }
+        // shadingsys().info ("Making a type with %d %ss for symbol '%s'\n",
+        //           total_size, sym.typespec().c_str(), mangled_name.c_str());
+        const llvm::Type *alloctype = llvm_type (sym.typespec().elementtype());
+        int arraylen = std::max (1, sym.typespec().arraylength());
+        int n = arraylen * (sym.has_derivs() ? 3 : 1);
+        llvm::ConstantInt* numalloc = (llvm::ConstantInt*)llvm_constant(n);
+        llvm::AllocaInst* allocation = tmp_builder.CreateAlloca(alloctype, numalloc, sym.mangled());
 
-        //outs() << "Allocation = " << *allocation << "\n";
+        // llvm::outs() << "Allocation = " << *allocation << "\n";
         named_values()[mangled_name] = allocation;
         return allocation;
     }
     return map_iter->second;
-}
-
-
-
-llvm::Value *
-RuntimeOptimizer::LLVMLoadShaderGlobal (const Symbol& sym, int component,
-                                        int deriv, bool ptr)
-{
-    int sg_index = ShaderGlobalNameToIndex (sym.name(), deriv);
-    //shadingsys().info ("Global '%s' has sg_index = %d\n", sym.name().c_str(), sg_index);
-    if (sg_index == -1) {
-        shadingsys().error ("Warning unhandled global '%s'", sym.name().c_str());
-        return NULL;
-    }
-
-    int num_elements = sym.typespec().simpletype().aggregate;
-    int real_component = std::min (num_elements, component);
-
-    llvm::Value* field = builder().CreateConstGEP2_32 (sg_ptr(), 0, sg_index);
-    if (num_elements == 1) {
-        return ptr ? field : builder().CreateLoad (field);
-    } else {
-        llvm::Value* element = builder().CreateConstGEP2_32(field, 0, real_component);
-        return ptr ? element : builder().CreateLoad (element);
-    }
-}
-
-
-
-llvm::Value *
-RuntimeOptimizer::LLVMStoreShaderGlobal (llvm::Value* val, const Symbol& sym,
-                                         int component, int deriv)
-{
-    shadingsys().error ("WARNING: Store to shaderglobal unsupported!\n");
-    return NULL;
 }
 
 
@@ -461,38 +438,67 @@ RuntimeOptimizer::LoadParam (const Symbol& sym, int component, int deriv,
 
 
 llvm::Value *
-RuntimeOptimizer::loadLLVMValue (const Symbol& sym, int component,
-                                 int deriv, TypeDesc cast)
+RuntimeOptimizer::llvm_get_pointer (const Symbol& sym, int deriv,
+                                    llvm::Value *arrayindex)
+{
+    bool has_derivs = sym.has_derivs();
+    if (!has_derivs && deriv != 0)
+        ASSERT (0 && "llvm_get_pointer: ask for derivs when there aren't any");
+
+    // Start with the initial pointer to the variable's memory location
+    llvm::Value* result = getLLVMSymbolBase (sym);
+    if (!result)
+        return NULL;  // Error
+
+    // If it's an array or we're dealing with derivatives, step to the
+    // right element.
+    TypeDesc t = sym.typespec().simpletype();
+    if (t.arraylen || has_derivs) {
+        int d = deriv * std::max(1,t.arraylen);
+        if (arrayindex)
+            arrayindex = builder().CreateAdd (arrayindex, llvm_constant(d));
+        else
+            arrayindex = llvm_constant(d);
+        result = builder().CreateGEP (result, arrayindex);
+    }
+
+    return result;
+}
+
+
+
+llvm::Value *
+RuntimeOptimizer::llvm_load_value (const Symbol& sym, int deriv,
+                                   llvm::Value *arrayindex, int component,
+                                   TypeDesc cast)
 {
     bool has_derivs = sym.has_derivs();
     if (!has_derivs && deriv != 0) {
         // Regardless of what object this is, if it doesn't have derivs but
         // we're asking for them, return 0.  Integers don't have derivs
         // so we don't need to worry about that case.
-        ASSERT (sym.typespec().is_floatbased() && cast != TypeDesc::TypeInt);
+        ASSERT (sym.typespec().is_floatbased() && cast != TypeDesc::TypeInt &&
+                "can't ask for derivs of an int");
         return llvm_constant (0.0f);
     }
 
-    // Handle Globals (and eventually Params) separately since they have
-    // aliasing stuff and use a different layout than locals.
-    if (sym.symtype() == SymTypeGlobal)
-        return LLVMLoadShaderGlobal (sym, component, deriv);
-
-    // Get the pointer of the aggregate (the alloca)
-    int num_elements = sym.typespec().simpletype().aggregate;
-    int real_component = std::min(num_elements, component);
-    int index = real_component + deriv * num_elements;
-    //shadingsys().info ("Looking up index %d (comp_%d -> realcomp_%d +  %d * %d) for symbol '%s'\n", index, component, real_component, deriv, num_elements, sym.mangled().c_str());
-    llvm::Value* result = getLLVMSymbolBase (sym);
+    // Start with the initial pointer to the value's memory location
+    llvm::Value* result = llvm_get_pointer (sym, deriv, arrayindex);
     if (!result)
-        return 0;  // Error
-    if (num_elements == 1 && !has_derivs) {
-        // The thing is just a scalar
-        result = builder().CreateLoad (result);
-    } else {
-        llvm::Value* ptr = builder().CreateConstGEP2_32 (result, 0, index);
-        result = builder().CreateLoad (ptr);
-    }
+        return NULL;  // Error
+
+    // Special case: a matrix is stored as a struct whose one field
+    // is an array of the values, so it needs an extra GEP.
+    TypeDesc t = sym.typespec().simpletype();
+    if (t.aggregate == TypeDesc::MATRIX44)
+        result = builder().CreateConstGEP2_32 (result, 0, 0);
+
+    // If it's multi-component (triple or matrix), step to the right field
+    if (! sym.typespec().is_closure() && t.aggregate > 1)
+        result = builder().CreateConstGEP2_32 (result, 0, component);
+
+    // Now grab the value
+    result = builder().CreateLoad (result);
 
     // Handle int<->float type casting
     if (sym.typespec().is_floatbased() && cast == TypeDesc::TypeInt)
@@ -505,54 +511,35 @@ RuntimeOptimizer::loadLLVMValue (const Symbol& sym, int component,
 
 
 
-llvm::Value *
-RuntimeOptimizer::load_llvm_ptr (const Symbol& sym, int deriv)
-{
-    ASSERT (sym.has_derivs() || deriv == 0);  // doesn't support derivs
-
-    // Handle Globals (and eventually Params) separately since they have
-    // aliasing stuff and use a different layout than locals.
-    if (sym.symtype() == SymTypeGlobal) {
-        return LLVMLoadShaderGlobal (sym, 0, deriv, true);
-    }
-
-    // Get the pointer of the aggregate (the alloca)
-    int num_elements = sym.typespec().simpletype().aggregate;
-    int index = deriv * num_elements;
-
-    llvm::Value* result = getLLVMSymbolBase (sym);
-    if (!result)
-        return 0;  // Error
-
-    llvm::Value* ptr = builder().CreateConstGEP2_32 (result, 0, index);
-    return ptr;
-}
-
-
-
 bool
-RuntimeOptimizer::storeLLVMValue (llvm::Value* new_val, const Symbol& sym,
-                                  int component, int deriv)
+RuntimeOptimizer::llvm_store_value (llvm::Value* new_val, const Symbol& sym,
+                                    int deriv, llvm::Value* arrayindex,
+                                    int component)
 {
     bool has_derivs = sym.has_derivs();
     if (!has_derivs && deriv != 0) {
-        shadingsys().error ("Tried to store to symbol '%s', component %d, deriv_idx %d but doesn't have derivatives\n", sym.name().c_str(), component, deriv);
-        return false;
+        // Attempt to store deriv in symbol that doesn't have it is just a nop
+        return true;
     }
 
-    llvm::Value* aggregate = getLLVMSymbolBase (sym);
-    if (!aggregate)
-        return false;
+    // Let llvm_get_pointer do most of the heavy lifting to get us a
+    // pointer to where our data lives.
+    llvm::Value *result = llvm_get_pointer (sym, deriv, arrayindex);
+    if (!result)
+        return false;  // Error
 
-    int num_elements = sym.typespec().simpletype().aggregate;
-    if (num_elements == 1 && !has_derivs) {
-        builder().CreateStore (new_val, aggregate);
-    } else {
-        int real_component = std::min(num_elements, component);
-        int index = real_component + deriv * num_elements;
-        llvm::Value* ptr = builder().CreateConstGEP2_32 (aggregate, 0, index);
-        builder().CreateStore (new_val, ptr);
-    }
+    // Special case: a matrix is stored as a struct whose one field
+    // is an array of the values, so it needs an extra GEP.
+    TypeDesc t = sym.typespec().simpletype();
+    if (t.aggregate == TypeDesc::MATRIX44)
+        result = builder().CreateConstGEP2_32 (result, 0, 0);
+
+    // If it's multi-component (triple or matrix), step to the right field
+    if (! sym.typespec().is_closure() && t.aggregate > 1)
+        result = builder().CreateConstGEP2_32 (result, 0, component);
+
+    // Finally, store the value.
+    builder().CreateStore (new_val, result);
     return true;
 }
 
@@ -579,7 +566,7 @@ RuntimeOptimizer::llvm_call_function (const char *name,
         if (s.typespec().is_closure())
             valargs[i] = loadLLVMValue (s);
         else if (s.typespec().simpletype().aggregate > 1)
-            valargs[i] = load_llvm_ptr (s);
+            valargs[i] = llvm_get_pointer (s);
         else
             valargs[i] = loadLLVMValue (s);
     }
@@ -1160,7 +1147,7 @@ LLVMGEN (llvm_gen_unary_op)
 
         if (opname == op_neg) {
             result = (src_float) ? rop.builder().CreateFNeg(src_val) : rop.builder().CreateNeg(src_val);
-        } if (opname == op_compl) {
+        } else if (opname == op_compl) {
             ASSERT (dst.typespec().is_int());
             result = rop.builder().CreateNot(src_val);
         } else if (opname == op_abs ||
@@ -1323,6 +1310,66 @@ LLVMGEN (llvm_gen_compref)
         rop.shadingsys().info ("punting on derivatives for now\n");
         // FIXME
     }
+    return true;
+}
+
+
+
+// Array reference
+LLVMGEN (llvm_gen_aref)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& Src = *rop.opargsym (op, 1);
+    Symbol& Index = *rop.opargsym (op, 2);
+
+    // Get array index we're interested in
+    llvm::Value *index = rop.loadLLVMValue (Index);
+    if (! index)
+        return false;
+    // FIXME -- do range detection here for constant indices
+    // Or should we always do range detection for safety?
+
+    int num_components = Src.typespec().simpletype().aggregate;
+    for (int d = 0;  d <= 2;  ++d) {
+        for (int c = 0;  c < num_components;  ++c) {
+            llvm::Value *val = rop.llvm_load_value (Src, d, index, c);
+            rop.storeLLVMValue (val, Result, c, d);
+        }
+        if (! Result.has_derivs())
+            break;
+    }
+
+    return true;
+}
+
+
+
+// Array assignment
+LLVMGEN (llvm_gen_aassign)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& Index = *rop.opargsym (op, 1);
+    Symbol& Src = *rop.opargsym (op, 2);
+
+    // Get array index we're interested in
+    llvm::Value *index = rop.loadLLVMValue (Index);
+    if (! index)
+        return false;
+    // FIXME -- do range detection here for constant indices
+    // Or should we always do range detection for safety?
+
+    int num_components = Result.typespec().simpletype().aggregate;
+    for (int d = 0;  d <= 2;  ++d) {
+        for (int c = 0;  c < num_components;  ++c) {
+            llvm::Value *val = rop.loadLLVMValue (Src, c, d);
+            rop.llvm_store_value (val, Result, d, index, c);
+        }
+        if (! Result.has_derivs())
+            break;
+    }
+
     return true;
 }
 
@@ -1790,6 +1837,8 @@ initialize_llvm_generator_table ()
 #define INIT(name) llvm_generator_table[ustring(#name)] = llvm_gen_##name;
 
     INIT (assign);
+    INIT (aref);
+    INIT (aassign);
     INIT (add);
     INIT (sub);
     INIT (mul);
@@ -1851,6 +1900,7 @@ RuntimeOptimizer::build_llvm_version ()
     sprintf (unique_layer_name, "%s_%d", inst()->layername().c_str(), inst()->id());
 
     const llvm::StructType* sg_type = getShaderGlobalType ();
+    // llvm::outs() << "sg_type is " << *sg_type << "\n";
     llvm::PointerType* sg_ptr_type = llvm::PointerType::get(sg_type, 0 /* Address space */);
     m_layer_func = llvm::cast<llvm::Function>(all_ops->getOrInsertFunction(unique_layer_name, llvm_type_void(), sg_ptr_type, llvm_type_void_ptr(), NULL));
     const OpcodeVec& instance_ops (inst()->ops());
@@ -1947,8 +1997,16 @@ RuntimeOptimizer::initialize_llvm_stuff ()
     m_llvm_type_char_ptr = llvm::Type::getInt8PtrTy (*m_llvm_context);
     m_llvm_type_float_ptr = llvm::Type::getFloatPtrTy (*m_llvm_context);
 
-    std::vector<const llvm::Type*> triple(3, m_llvm_type_float);
-    m_llvm_type_triple = llvm::StructType::get(llvm_context(), triple);
+    // A triple is a struct composed of 3 floats
+    std::vector<const llvm::Type*> triplefields(3, m_llvm_type_float);
+    m_llvm_type_triple = llvm::StructType::get(llvm_context(), triplefields);
+    m_llvm_type_triple_ptr = llvm::PointerType::get (m_llvm_type_triple, 0);
+
+    // A matrix is a struct composed of a matrix of 16 floats
+    const llvm::Type *float16 = llvm::ArrayType::get (m_llvm_type_float, 16);
+    std::vector<const llvm::Type*> matrixfields(1, float16);
+    m_llvm_type_matrix = llvm::StructType::get(llvm_context(), matrixfields);
+    m_llvm_type_matrix_ptr = llvm::PointerType::get (m_llvm_type_matrix, 0);
 
     // Now we have things we only need to do once for each context.
     static spin_mutex mutex;
@@ -1975,7 +2033,7 @@ RuntimeOptimizer::initialize_llvm_stuff ()
                 else
                     ASSERT (0);
             } else {
-                params.push_back (llvm_type (t));
+                params.push_back (llvm_pass_type (t));
             }
             types += advance;
         }

@@ -246,35 +246,57 @@ public:
     BasicBlockMap &bb_map () { return m_bb_map; }
     llvm::IRBuilder<> &builder () { return *m_builder; }
 
-    /// Return the llvm::Value* corresponding to the given symbol, with
-    /// optional component (x=0, y=1, z=2) and/or derivative (0=value,
-    /// 1=dx, 2=dy).  If the component >0 and it's a scalar, return the
-    /// scalar -- this allows automatic casting to triples.  If deriv >0
-    /// and the symbol doesn't have derivatives, return 0 for the
-    /// derivative.  Finally, cast controls conversion as needed of
-    /// int<->float (no conversion is performed if cast is the default
-    /// of UNKNOWN).  Returns NULL upon failure.
-    llvm::Value *loadLLVMValue (const Symbol& sym, int component=0, int deriv=0,
-                                TypeDesc cast=TypeDesc::UNKNOWN);
+    /// Return an llvm::Value* corresponding to the address of the given
+    /// symbol element, with derivative (0=value, 1=dx, 2=dy) and array
+    /// index (NULL if it's not an array).
+    llvm::Value *llvm_get_pointer (const Symbol& sym, int deriv=0,
+                                   llvm::Value *arrayindex=NULL);
 
-    /// Return the llvm::Value* corresponding to the address of the
-    /// symbol, with optional derivative (0=value, 1=dx, 2=dy).  Returns
-    /// NULL upon failure.
-    llvm::Value *load_llvm_ptr (const Symbol& sym, int deriv=0);
+    /// Return the llvm::Value* corresponding to the given element
+    /// value, with derivative (0=value, 1=dx, 2=dy), array index (NULL
+    /// if it's not an array), and component (x=0 or scalar, y=1, z=2).
+    /// If deriv >0 and the symbol doesn't have derivatives, return 0
+    /// for the derivative.  If the component >0 and it's a scalar,
+    /// return the scalar -- this allows automatic casting to triples.
+    /// Finally, auto-cast int<->float if requested (no conversion is
+    /// performed if cast is the default of UNKNOWN).
+    llvm::Value *llvm_load_value (const Symbol& sym, int deriv,
+                                  llvm::Value *arrayindex, int component,
+                                  TypeDesc cast=TypeDesc::UNKNOWN);
 
-    /// Store new_val into given symbol, with optional component (x=0,
-    /// y=1, z=2) and/or derivative (0=value, 1=dx, 2=dy).  Returns true
-    /// if ok, false upon failure.
+    /// Legacy version
+    ///
+    llvm::Value *loadLLVMValue (const Symbol& sym, int component=0,
+                                int deriv=0, TypeDesc cast=TypeDesc::UNKNOWN) {
+        return llvm_load_value (sym, deriv, NULL, component, cast);
+    }
+
+    /// Store new_val into the given symbol, given the derivative
+    /// (0=value, 1=dx, 2=dy), array index (NULL if it's not an array),
+    /// and component (x=0 or scalar, y=1, z=2).  If deriv>0 and the
+    /// symbol doesn't have a deriv, it's a nop.  If the component >0
+    /// and it's a scalar, set the scalar.  Returns true if ok, false
+    /// upon failure.
+    bool llvm_store_value (llvm::Value *new_val, const Symbol& sym, int deriv,
+                           llvm::Value *arrayindex, int component);
+
+    /// Non-array version of llvm_store_value, with default deriv &
+    /// component.
+    bool llvm_store_value (llvm::Value *new_val, const Symbol& sym,
+                           int deriv=0, int component=0) {
+        return llvm_store_value (new_val, sym, deriv, NULL, component);
+    }
+
+    /// Legacy version
+    ///
     bool storeLLVMValue (llvm::Value* new_val, const Symbol& sym,
-                         int component=0, int deriv=0);
+                         int component=0, int deriv=0) {
+        return llvm_store_value (new_val, sym, deriv, component);
+    }
 
     /// Return the llvm::Value* corresponding to the symbol, which is a
     /// shader global, and if 'ptr' is true return its address rather
     /// than its value.
-    llvm::Value *LLVMLoadShaderGlobal (const Symbol& sym, int component,
-                                       int deriv, bool ptr=false);
-    llvm::Value *LLVMStoreShaderGlobal (llvm::Value* val, const Symbol& sym,
-                                        int component, int deriv);
     llvm::Value *LoadParam (const Symbol& sym, int component, int deriv,
                             float* fdata, int* idata, ustring* sdata);
     llvm::Value *getOrAllocateLLVMSymbol (const Symbol& sym, llvm::Function* f);
@@ -324,17 +346,25 @@ public:
     llvm::Value *llvm_call_function (const char *name, const Symbol &A,
                                      const Symbol &B, const Symbol &C);
 
-    /// Generate the appropriate llvm type definition for an OSL TypeSpec.
-    ///
+    /// Generate the appropriate llvm type definition for an OSL TypeSpec
+    /// (this is the actual type, for example when we allocate it).
     const llvm::Type *llvm_type (const TypeSpec &typespec);
 
+    /// Generate the parameter-passing llvm type definition for an OSL
+    /// TypeSpec.
+    const llvm::Type *llvm_pass_type (const TypeSpec &typespec);
+
     const llvm::Type *llvm_type_float() { return m_llvm_type_float; }
+    const llvm::Type *llvm_type_triple() { return m_llvm_type_triple; }
+    const llvm::Type *llvm_type_matrix() { return m_llvm_type_matrix; }
     const llvm::Type *llvm_type_int() { return m_llvm_type_int; }
     const llvm::Type *llvm_type_bool() { return m_llvm_type_bool; }
     const llvm::Type *llvm_type_void() { return m_llvm_type_void; }
     const llvm::PointerType *llvm_type_void_ptr() { return m_llvm_type_char_ptr; }
     const llvm::PointerType *llvm_type_string() { return m_llvm_type_char_ptr; }
     const llvm::PointerType *llvm_type_float_ptr() { return m_llvm_type_float_ptr; }
+    const llvm::PointerType *llvm_type_triple_ptr() { return m_llvm_type_triple_ptr; }
+    const llvm::PointerType *llvm_type_matrix_ptr() { return m_llvm_type_matrix_ptr; }
 
     void llvm_do_optimization ();
 
@@ -367,8 +397,11 @@ private:
     const llvm::Type *m_llvm_type_bool;
     const llvm::Type *m_llvm_type_void;
     const llvm::Type *m_llvm_type_triple;
+    const llvm::Type *m_llvm_type_matrix;
     const llvm::PointerType *m_llvm_type_char_ptr;
     const llvm::PointerType *m_llvm_type_float_ptr;
+    const llvm::PointerType *m_llvm_type_triple_ptr;
+    const llvm::PointerType *m_llvm_type_matrix_ptr;
 
     // Persistant data shared between layers
     bool m_unknown_message_sent;      ///< Somebody did a non-const setmessage
