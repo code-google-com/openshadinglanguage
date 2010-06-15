@@ -58,7 +58,6 @@ static ustring op_bitor("bitor");
 static ustring op_ceil("ceil");
 static ustring op_color("color");
 static ustring op_compl("compl");
-static ustring op_compref("compref");
 static ustring op_cos("cos");
 static ustring op_cross("cross");
 static ustring op_dot("dot");
@@ -82,9 +81,6 @@ static ustring op_log2("log2");
 static ustring op_logb("logb");
 static ustring op_lt("lt");
 static ustring op_luminance("luminance");
-static ustring op_matrix("matrix");
-static ustring op_mxcompassign("mxcompassign");
-static ustring op_mxcompref("mxcompref");
 static ustring op_neg("neg");
 static ustring op_neq("neq");
 static ustring op_nop("nop");
@@ -596,6 +592,9 @@ RuntimeOptimizer::llvm_call_function (const char *name,
                                       llvm::Value **args, int nargs)
 {
     llvm::Function *func = llvm_module()->getFunction (name);
+    if (! func)
+        std::cerr << "Couldn't find function " << name << "\n";
+    ASSERT (func);
 #if 0
     llvm::outs() << "llvm_call_function " << *func << "\n";
     llvm::outs() << "\nargs:\n";
@@ -618,7 +617,7 @@ RuntimeOptimizer::llvm_call_function (const char *name,
         if (s.typespec().is_closure())
             valargs[i] = loadLLVMValue (s);
         else if (s.typespec().simpletype().aggregate > 1)
-            valargs[i] = llvm_get_pointer (s);
+            valargs[i] = llvm_void_ptr (s);
         else
             valargs[i] = loadLLVMValue (s);
     }
@@ -927,11 +926,13 @@ LLVMGEN (llvm_gen_mul)
                 rop.llvm_call_function ("osl_mul_m_ff", Result, A, B);
             else if (B.typespec().is_matrix())
                 rop.llvm_call_function ("osl_mul_mf", Result, B, A);
-        } if (A.typespec().is_matrix()) {
+            else ASSERT(0);
+        } else if (A.typespec().is_matrix()) {
             if (B.typespec().is_float())
                 rop.llvm_call_function ("osl_mul_mf", Result, A, B);
             else if (B.typespec().is_matrix())
                 rop.llvm_call_function ("osl_mul_mm", Result, A, B);
+            else ASSERT(0);
         } else ASSERT (0);
         if (Result.has_derivs())
             rop.llvm_zero_derivs (Result);
@@ -1005,11 +1006,13 @@ LLVMGEN (llvm_gen_div)
                 rop.llvm_call_function ("osl_div_m_ff", Result, A, B);
             else if (B.typespec().is_matrix())
                 rop.llvm_call_function ("osl_div_fm", Result, A, B);
-        } if (A.typespec().is_matrix()) {
+            else ASSERT (0);
+        } else if (A.typespec().is_matrix()) {
             if (B.typespec().is_float())
                 rop.llvm_call_function ("osl_div_mf", Result, A, B);
             else if (B.typespec().is_matrix())
                 rop.llvm_call_function ("osl_div_mm", Result, A, B);
+            else ASSERT (0);
         } else ASSERT (0);
         if (Result.has_derivs())
             rop.llvm_zero_derivs (Result);
@@ -1355,11 +1358,7 @@ LLVMGEN (llvm_gen_mxcompref)
         val = rop.llvm_load_component_value (M, 0, comp);
     }
     rop.llvm_store_value (val, Result);
-    if (Result.has_derivs()) {
-        llvm::Value *zero = rop.llvm_constant (0.0f);
-        rop.llvm_store_value (zero, Result, 1);
-        rop.llvm_store_value (zero, Result, 2);
-    }
+    rop.llvm_zero_derivs (Result);
 
     return true;
 }
@@ -1836,6 +1835,32 @@ LLVMGEN (llvm_gen_normalize)
 
 
 
+// Matrix determinant
+LLVMGEN (llvm_gen_determinant)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& A = *rop.opargsym (op, 1);
+    llvm::Value *r = rop.llvm_call_function ("osl_determinant", A);
+    rop.llvm_store_value (r, Result);
+    rop.llvm_zero_derivs (Result);
+    return true;
+}
+
+
+
+// Matrix transpose
+LLVMGEN (llvm_gen_transpose)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& A = *rop.opargsym (op, 1);
+    rop.llvm_call_function ("osl_transpose", Result, A);
+    return true;
+}
+
+
+
 LLVMGEN (llvm_gen_if)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
@@ -1980,6 +2005,8 @@ initialize_llvm_generator_table ()
     INIT (compref);
     INIT (mxcompassign);
     INIT (mxcompref);
+    INIT (determinant);
+    INIT (transpose);
     INIT2 (eq, llvm_gen_compare_op);
     INIT2 (neq, llvm_gen_compare_op);
     INIT2 (lt, llvm_gen_compare_op);
