@@ -84,7 +84,9 @@ static ustring op_luminance("luminance");
 static ustring op_neg("neg");
 static ustring op_neq("neq");
 static ustring op_nop("nop");
+static ustring op_normal("normal");
 static ustring op_normalize("normalize");
+static ustring op_point("point");
 static ustring op_printf("printf");
 static ustring op_shl("shl");
 static ustring op_shr("shr");
@@ -1452,34 +1454,52 @@ LLVMGEN (llvm_gen_aassign)
 
 
 
-// Simple aggregate constructor (no conversion)
+// Construct triple (point, vector, normal, color)
 LLVMGEN (llvm_gen_construct_triple)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
-    Symbol& dst = *rop.opargsym (op, 0);
-    Symbol& arg1 = *rop.opargsym (op, 1);
-    if (arg1.typespec().is_string()) {
-        // Using a string to say what space we want, punt for now.
-        ASSERT (0 && "triple constructor using space name not yet working");
-        return false;  // FIXME
-    }
+    Symbol& Result = *rop.opargsym (op, 0);
+    bool using_space = (op.nargs() == 5);
+    Symbol& Space = *rop.opargsym (op, 1);
+    Symbol& X = *rop.opargsym (op, 1+using_space);
+    Symbol& Y = *rop.opargsym (op, 2+using_space);
+    Symbol& Z = *rop.opargsym (op, 3+using_space);
+    ASSERT (Result.typespec().is_triple() && X.typespec().is_float() &&
+            Y.typespec().is_float() && Z.typespec().is_float() &&
+            (using_space == false || Space.typespec().is_string()));
+
     // Otherwise, the args are just data.
     const Symbol* src_syms[16];
     for (int i = 1; i < op.nargs(); i++)
         src_syms[i-1] = rop.opargsym (op, i);
 
-    bool dst_derivs = dst.has_derivs();
-    int num_components = dst.typespec().simpletype().aggregate;
-
-    for (int d = 0;  d < 3;  ++d) {  // loop over deriv components
-        for (int i = 0; i < num_components; i++) {
-            const Symbol& src = *src_syms[i];
-            llvm::Value* src_val = rop.llvm_load_value (src, d, NULL, 0, TypeDesc::TypeFloat);
-            rop.llvm_store_value (src_val, dst, d, NULL, i);
+    for (int d = 0;  d < 3;  ++d) {  // loop over derivs
+        // First, copy the floats into the vector
+        for (int c = 0;  c < 3;  ++c) {  // loop over components
+            const Symbol& comp = *rop.opargsym (op, c+1+using_space);
+            llvm::Value* val = rop.llvm_load_value (comp, d, NULL, 0, TypeDesc::TypeFloat);
+            rop.llvm_store_value (val, Result, d, NULL, c);
         }
-        if (! dst_derivs)
-            break;
+        // Do the transformation in-place, if called for
+        if (using_space) {
+            llvm::Value *args[3];
+            args[0] = rop.sg_void_ptr ();  // shader globals
+            args[1] = rop.llvm_void_ptr (Result, d);  // vector
+            args[2] = rop.llvm_load_value (*rop.opargsym (op, 1), d); // from
+            if (op.opname() == op_vector || d > 0) {
+                // NB derivs are like vecs
+                rop.llvm_call_function ("osl_prepend_vector_from", args, 3);
+            }
+            else if (op.opname() == op_point)
+                rop.llvm_call_function ("osl_prepend_point_from", args, 3);
+            else if (op.opname() == op_normal)
+                rop.llvm_call_function ("osl_prepend_normal_from", args, 3);
+            else ASSERT(0 && "unsupported color ctr with color space name");
+        }
+        if (! Result.has_derivs())
+            break;    // don't bother if Result doesn't have derivs
     }
+
     return true;
 }
 

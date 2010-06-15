@@ -97,6 +97,9 @@ osl_mul_closure_color (ClosureColor *r, ClosureColor *a, Color3 *b)
 }
 
 
+
+// Matrix ops
+
 extern "C" void
 osl_mul_mm (void *r, void *a, void *b)
 {
@@ -249,6 +252,36 @@ osl_determinant (void *m)
 {
     return det4x4 (MAT(m));
 }
+
+
+
+// Vector ops
+
+extern "C" void
+osl_prepend_point_from (void *sg, void *v, const char *from)
+{
+    Matrix44 M;
+    osl_get_matrix ((SingleShaderGlobal *)sg, &M, from);
+    M.multVecMatrix (VEC(v), VEC(v));
+}
+
+extern "C" void
+osl_prepend_vector_from (void *sg, void *v, const char *from)
+{
+    Matrix44 M;
+    osl_get_matrix ((SingleShaderGlobal *)sg, &M, from);
+    M.multDirMatrix (VEC(v), VEC(v));
+}
+
+extern "C" void
+osl_prepend_normal_from (void *sg, void *v, const char *from)
+{
+    Matrix44 M;
+    osl_get_matrix ((SingleShaderGlobal *)sg, &M, from);
+    M = M.inverse().transpose();
+    M.multDirMatrix (VEC(v), VEC(v));
+}
+
 
 
 

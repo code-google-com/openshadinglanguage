@@ -350,8 +350,8 @@ public:
         return builder().CreatePointerCast(val,llvm_type_void_ptr());
     }
 
-    llvm::Value *llvm_void_ptr (const Symbol &sym) {
-        return llvm_void_ptr (llvm_get_pointer(sym));
+    llvm::Value *llvm_void_ptr (const Symbol &sym, int deriv=0) {
+        return llvm_void_ptr (llvm_get_pointer(sym, deriv));
     }
 
     /// Return an llvm::Value holding the given floating point constant.
