@@ -32,9 +32,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "oslconfig.h"
 #include "oslclosure.h"
+#include "oslexec_pvt.h"
 using namespace OSL;
+using namespace OSL::pvt;
 
 #include <OpenEXR/ImathFun.h>
+
+// Handy re-cast the incoming const char* as a ustring& (which we know it
+// is).
+#define USTR(cstr) (*((ustring *)&cstr))
+#define MAT(m) (*(Matrix44 *)m)
+#define VEC(v) (*(Vec3 *)v)
 
 
 
@@ -133,13 +141,74 @@ osl_div_m_ff (Matrix44 *r, float a, float b)
     *r = Matrix44 (f,0,0,0, 0,f,0,0, 0,0,f,0, 0,0,0,f);
 }
 
+bool
+osl_get_matrix (SingleShaderGlobal *sg, Matrix44 *r, const char *from)
+{
+    ShadingContext *ctx = (ShadingContext *)sg->context;
+    if (USTR(from) == Strings::common ||
+            USTR(from) == ctx->shadingsys().commonspace_synonym()) {
+        r->makeIdentity ();
+        return true;
+    }
+    if (USTR(from) == Strings::shader) {
+        ctx->renderer()->get_matrix (*r, sg->shader2common, sg->time);
+        return true;
+    }
+    if (USTR(from) == Strings::object) {
+        ctx->renderer()->get_matrix (*r, sg->object2common, sg->time);
+        return true;
+    }
+    return ctx->renderer()->get_matrix (*r, USTR(from), sg->time);
+    // FIXME -- error report if it fails?
+}
+
+bool
+osl_get_inverse_matrix (SingleShaderGlobal *sg, Matrix44 *r, const char *to)
+{
+    ShadingContext *ctx = (ShadingContext *)sg->context;
+    if (USTR(to) == Strings::common ||
+            USTR(to) == ctx->shadingsys().commonspace_synonym()) {
+        r->makeIdentity ();
+        return true;;
+    }
+    if (USTR(to) == Strings::shader) {
+        ctx->renderer()->get_inverse_matrix (*r, sg->shader2common, sg->time);
+        return true;
+    }
+    if (USTR(to) == Strings::object) {
+        ctx->renderer()->get_inverse_matrix (*r, sg->object2common, sg->time);
+        return true;
+    }
+    bool ok = ctx->renderer()->get_inverse_matrix (*r, USTR(to), sg->time);
+    if (! ok) {
+        r->makeIdentity ();
+        //FIXME  error ("Could not get matrix '%s'", to.c_str());
+    }
+    return true;
+}
+
+
+
+extern "C" void
+osl_prepend_matrix_from (void *sg, void *r, const char *from)
+{
+    Matrix44 m;
+    osl_get_matrix ((SingleShaderGlobal *)sg, &m, from);
+    MAT(r) = m * MAT(r);
+}
+
+extern "C" void
+osl_get_from_to_matrix (void *sg, void *r, const char *from, const char *to)
+{
+    Matrix44 Mfrom, Mto;
+    bool ok = osl_get_matrix ((SingleShaderGlobal *)sg, &Mfrom, from);
+    ok &= osl_get_inverse_matrix ((SingleShaderGlobal *)sg, &Mto, to);
+    MAT(r) = Mfrom * Mto;
+}
+
 
 
 // String ops
-
-// Handy re-cast the incoming const char* as a ustring& (which we know it
-// is).
-#define USTR(cstr) (*((ustring *)&cstr))
 
 // Only define 2-arg version of concat, sort it out upstream
 extern "C" const char *

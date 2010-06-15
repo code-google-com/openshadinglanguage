@@ -264,6 +264,14 @@ public:
                                   llvm::Value *arrayindex, int component,
                                   TypeDesc cast=TypeDesc::UNKNOWN);
 
+    /// Non-array version of llvm_load_value, with default defiv &
+    /// component.
+    llvm::Value *llvm_load_value (const Symbol& sym, int deriv = 0,
+                                  int component = 0,
+                                  TypeDesc cast=TypeDesc::UNKNOWN) {
+        return llvm_load_value (sym, deriv, NULL, component, cast);
+    }
+
     /// Legacy version
     ///
     llvm::Value *loadLLVMValue (const Symbol& sym, int component=0,
@@ -302,11 +310,39 @@ public:
     llvm::Value *getOrAllocateLLVMSymbol (const Symbol& sym, llvm::Function* f);
     llvm::Value *getLLVMSymbolBase (const Symbol &sym);
 
+    /// Generate the LLVM IR code to convert fval from a float to
+    /// an integer and return the new value.
     llvm::Value *llvm_float_to_int (llvm::Value *fval);
+
+    /// Generate the LLVM IR code to convert ival from an int to a float
+    /// and return the new value.
     llvm::Value *llvm_int_to_float (llvm::Value *ival);
+
+    /// Return the LLVM type handle for the SingleShaderGlobals struct.
+    ///
     const llvm::StructType *getShaderGlobalType ();
 
+    /// Return the SingleShaderGlobals pointer.
+    ///
     llvm::Value *sg_ptr () const { return m_llvm_shaderglobals_ptr; }
+
+    /// Return the SingleShaderGlobals pointer cast as a void*.
+    ///
+    llvm::Value *sg_void_ptr () {
+        return llvm_void_ptr (m_llvm_shaderglobals_ptr);
+    }
+
+    llvm::Value *llvm_ptr_cast (llvm::Value* val, const llvm::Type *type) {
+        return builder().CreatePointerCast(val,type);
+    }
+
+    llvm::Value *llvm_void_ptr (llvm::Value* val) {
+        return builder().CreatePointerCast(val,llvm_type_void_ptr());
+    }
+
+    llvm::Value *llvm_void_ptr (const Symbol &sym) {
+        return llvm_void_ptr (llvm_get_pointer(sym));
+    }
 
     /// Return an llvm::Value holding the given floating point constant.
     ///
@@ -319,6 +355,9 @@ public:
     /// Return an llvm::Value holding the given integer constant.
     ///
     llvm::Value *llvm_constant (ustring s);
+    llvm::Value *llvm_constant (const char *s) {
+        return llvm_constant(ustring(s));
+    }
 
     /// Generate LLVM code to zero out the derivatives of sym.
     ///

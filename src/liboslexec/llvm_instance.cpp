@@ -82,6 +82,7 @@ static ustring op_log2("log2");
 static ustring op_logb("logb");
 static ustring op_lt("lt");
 static ustring op_luminance("luminance");
+static ustring op_matrix("matrix");
 static ustring op_neg("neg");
 static ustring op_neq("neq");
 static ustring op_nop("nop");
@@ -152,7 +153,8 @@ RuntimeOptimizer::getShaderGlobalType ()
     sg_types.push_back (llvm_type_triple());  // dPdtime
     sg_types.push_back (triple_deriv);        // Ps
 
-    sg_types.push_back(llvm_type_void_ptr()); // renderstate
+    sg_types.push_back(llvm_type_void_ptr()); // opaque render state*
+    sg_types.push_back(llvm_type_void_ptr()); // ShadingContext*
     sg_types.push_back(llvm_type_void_ptr()); // object2common
     sg_types.push_back(llvm_type_void_ptr()); // shader2common
     sg_types.push_back(llvm_type_void_ptr()); // Ci
@@ -172,50 +174,20 @@ RuntimeOptimizer::getShaderGlobalType ()
 static int
 ShaderGlobalNameToIndex (ustring name)
 {
-    if (name == Strings::P)
-        return 0;
-    if (name == Strings::I)
-        return 1;
-    if (name == Strings::N)
-        return 2;
-    if (name == Strings::Ng)
-        return 3;
-    if (name == Strings::u)
-        return 4;
-    if (name == Strings::v)
-        return 5;
-    if (name == Strings::dPdu)
-        return 6;
-    if (name == Strings::dPdv)
-        return 7;
-    if (name == Strings::time)
-        return 8;
-    if (name == Strings::dtime)
-        return 9;
-    if (name == Strings::dPdtime)
-        return 10;
-    if (name == Strings::Ps)
-        return 11;
-#if 0
-    if (name == Strings::renderstate)
-        return 12;
-    if (name == Strings::object2common)
-        return 13;
-    if (name == Strings::shader2common)
-        return 14;
-#endif
-    if (name == Strings::Ci)
-        return 15;
-#if 0
-    if (name == Strings::surfacearea)
-        return 16;
-    if (name == Strings::iscameraray)
-        return 17;
-    if (name == Strings::isshadowray)
-        return 18;
-    if (name == Strings::flipHandedness)
-        return 19;
-#endif
+    static ustring fields[] = {
+        Strings::P, Strings::I, Strings::N, Strings::Ng,
+        Strings::u, Strings::v, Strings::dPdu, Strings::dPdv,
+        Strings::time, Strings::dtime, Strings::dPdtime, Strings::Ps,
+        ustring("renderstate"), ustring("shadingcontext"),
+        ustring("object2common"), ustring("shader2common"),
+        Strings::Ci,
+        ustring("surfacearea"), ustring("iscameraray"),
+        ustring("isshadowray"), ustring("flipHandedness")
+    };
+
+    for (int i = 0;  i < int(sizeof(fields)/sizeof(fields[0]));  ++i)
+        if (name == fields[i])
+            return i;
     return -1;
 }
 
@@ -267,9 +239,12 @@ RuntimeOptimizer::llvm_constant (int i)
 llvm::Value *
 RuntimeOptimizer::llvm_constant (ustring s)
 {
-    llvm::Value *val = builder().CreateGlobalString(s.c_str());
-    val = builder().CreateConstGEP2_32 (val, 0, 0);
-    return val;
+    // Create a const size_t with the ustring contents
+    size_t bits = sizeof(size_t)*8;
+    llvm::Value *str = llvm::ConstantInt::get (llvm_context(),
+                               llvm::APInt(bits,size_t(s.c_str()), true));
+    // Then cast the int to a char*.
+    return builder().CreateIntToPtr (str, llvm_type_string());
 }
 
 
@@ -550,6 +525,12 @@ RuntimeOptimizer::llvm_call_function (const char *name,
                                       llvm::Value **args, int nargs)
 {
     llvm::Function *func = llvm_module()->getFunction (name);
+#if 0
+    llvm::outs() << "llvm_call_function " << *func << "\n";
+    llvm::outs() << "\nargs:\n";
+    for (int i = 0;  i < nargs;  ++i)
+        llvm::outs() << "\t" << *(args[i]) << "\n";
+#endif
     return builder().CreateCall (func, args, args+nargs);
 }
 
@@ -696,14 +677,9 @@ LLVMGEN (llvm_gen_printf)
     //shadingsys().info ("llvm printf. Original string = '%s', new string = '%s'",
     //     format_ustring.c_str(), s.c_str());
 
-    llvm::Value* llvm_str = rop.builder().CreateGlobalString(s.c_str());
-    llvm::Value* llvm_ptr = rop.builder().CreateConstGEP2_32(llvm_str, 0, 0);
-    //outs() << "Type of format string (CreateGlobalString) = " << *llvm_str << "\n";
-    //outs() << "llvm_ptr after GEP = " << *llvm_ptr << "\n";
-    call_args[0] = llvm_ptr;
+    call_args[0] = rop.llvm_constant (s.c_str());
 
     rop.llvm_call_function ("osl_printf", &call_args[0], (int)call_args.size());
-    //outs() << "printf_call = " << *printf_call << "\n";
     return true;
 }
 
@@ -1383,6 +1359,7 @@ LLVMGEN (llvm_gen_construct_triple)
     Symbol& arg1 = *rop.opargsym (op, 1);
     if (arg1.typespec().is_string()) {
         // Using a string to say what space we want, punt for now.
+        ASSERT (0 && "triple constructor using space name not yet working");
         return false;  // FIXME
     }
     // Otherwise, the args are just data.
@@ -1393,19 +1370,65 @@ LLVMGEN (llvm_gen_construct_triple)
     bool dst_derivs = dst.has_derivs();
     int num_components = dst.typespec().simpletype().aggregate;
 
-    for (int i = 0; i < num_components; i++) {
-        const Symbol& src = *src_syms[i];
-        // Get src component 0 (it should be a scalar)
-        llvm::Value* src_val = rop.loadLLVMValue (src, 0, 0, TypeDesc::TypeFloat);
-        if (!src_val)
-            return false;
+    for (int d = 0;  d < 3;  ++d) {  // loop over deriv components
+        for (int i = 0; i < num_components; i++) {
+            const Symbol& src = *src_syms[i];
+            llvm::Value* src_val = rop.llvm_load_value (src, d, NULL, 0, TypeDesc::TypeFloat);
+            rop.llvm_store_value (src_val, dst, d, NULL, i);
+        }
+        if (! dst_derivs)
+            break;
+    }
+    return true;
+}
 
-        rop.storeLLVMValue (src_val, dst, i, 0);
 
-        if (dst_derivs) {
-            // mul results in <a * b, a * b_dx + b * a_dx, a * b_dy + b * a_dy>
-            rop.shadingsys().info ("punting on derivatives for now\n");
-            // FIXME
+
+/// matrix constructor.  Comes in several varieties:
+///    matrix (float)
+///    matrix (space, float)
+///    matrix (...16 floats...)
+///    matrix (space, ...16 floats...)
+///    matrix (fromspace, tospace)
+LLVMGEN (llvm_gen_matrix)   // FIXME
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    int nargs = op.nargs();
+    bool using_space = (nargs == 3 || nargs == 18);
+    bool using_two_spaces = (nargs == 3 && rop.opargsym(op,2)->typespec().is_string());
+    int nfloats = nargs - 1 - (int)using_space;
+    ASSERT (nargs == 2 || nargs == 3 || nargs == 17 || nargs == 18);
+
+    if (using_two_spaces) {
+        llvm::Value *args[4];
+        args[0] = rop.sg_void_ptr();  // shader globals
+        args[1] = rop.llvm_void_ptr(Result);  // result
+        args[2] = rop.llvm_load_value(*rop.opargsym (op, 1));  // from
+        args[3] = rop.llvm_load_value(*rop.opargsym (op, 2));  // to
+        rop.llvm_call_function ("osl_get_from_to_matrix", args, 4);
+    } else {
+        if (nfloats == 1) {
+            for (int i = 0; i < 16; i++) {
+                llvm::Value* src_val = ((i%4) == (i/4)) 
+                    ? rop.llvm_load_value (*rop.opargsym(op,1+using_space))
+                    : rop.llvm_constant(0.0f);
+                rop.llvm_store_value (src_val, Result, 0, i);
+            }
+        } else if (nfloats == 16) {
+            for (int i = 0; i < 16; i++) {
+                llvm::Value* src_val = rop.llvm_load_value (*rop.opargsym(op,i+1+using_space));
+                rop.llvm_store_value (src_val, Result, 0, i);
+            }
+        } else {
+            ASSERT (0);
+        }
+        if (using_space) {
+            llvm::Value *args[3];
+            args[0] = rop.sg_void_ptr();  // shader globals
+            args[1] = rop.llvm_void_ptr(Result);  // result
+            args[2] = rop.llvm_load_value(*rop.opargsym (op, 1));  // from
+            rop.llvm_call_function ("osl_prepend_matrix_from", args, 3);
         }
     }
     return true;
@@ -1870,6 +1893,7 @@ initialize_llvm_generator_table ()
     INIT2 (vector, llvm_gen_construct_triple);
     INIT2 (normal, llvm_gen_construct_triple);
     INIT2 (color, llvm_gen_construct_triple);
+    INIT (matrix);
     INIT2 (length, llvm_gen_unary_reduction);
     INIT2 (luminance, llvm_gen_unary_reduction);
     INIT (if);
@@ -1902,7 +1926,7 @@ RuntimeOptimizer::build_llvm_version ()
     const llvm::StructType* sg_type = getShaderGlobalType ();
     // llvm::outs() << "sg_type is " << *sg_type << "\n";
     llvm::PointerType* sg_ptr_type = llvm::PointerType::get(sg_type, 0 /* Address space */);
-    m_layer_func = llvm::cast<llvm::Function>(all_ops->getOrInsertFunction(unique_layer_name, llvm_type_void(), sg_ptr_type, llvm_type_void_ptr(), NULL));
+    m_layer_func = llvm::cast<llvm::Function>(all_ops->getOrInsertFunction(unique_layer_name, llvm_type_void(), sg_ptr_type, NULL));
     const OpcodeVec& instance_ops (inst()->ops());
     llvm::Function::arg_iterator arg_it = m_layer_func->arg_begin();
     // Get shader globals pointer
@@ -2040,26 +2064,6 @@ RuntimeOptimizer::initialize_llvm_stuff ()
         llvm::FunctionType *func = llvm::FunctionType::get (llvm_type(rettype), params, varargs);
         m_llvm_module->getOrInsertFunction (funcname, func);
     }
-
-#if 0
-    std::vector<const llvm::Type*> params;
-    llvm::FunctionType *func_type;
-    params.clear();
-    params.push_back (llvm::Type::getInt8PtrTy(*llvm_context()));
-    func_type = llvm::FunctionType::get (llvm::Type::getVoidTy(*llvm_context()), params, true /* varargs */);
-    m_llvm_module->getOrInsertFunction ("osl_printf", func_type);
-
-    params.clear ();
-    params.push_back (llvm::Type::getInt8PtrTy(*llvm_context()));
-    func_type = llvm::FunctionType::get (llvm::Type::getFloatTy(*llvm_context()), params, false /* varargs */);
-    m_llvm_module->getOrInsertFunction ("osl_closure_clear", func_type);
-    
-    params.clear ();
-    params.push_back (llvm::Type::getInt8PtrTy(*llvm_context()));
-    params.push_back (llvm::Type::getInt8PtrTy(*llvm_context()));
-    func_type = llvm::FunctionType::get (llvm::Type::getFloatTy(*llvm_context()), params, false /* varargs */);
-    m_llvm_module->getOrInsertFunction ("osl_closure_assign", func_type);
-#endif
 
     initialized_context = m_llvm_context;
 }

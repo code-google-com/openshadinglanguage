@@ -50,8 +50,8 @@ namespace pvt {   // OSL::pvt
 
 
 ShadingContext::ShadingContext (ShadingSystemImpl &shadingsys) 
-    : m_shadingsys(shadingsys), m_attribs(NULL),
-      m_globals(NULL)
+    : m_shadingsys(shadingsys), m_renderer(m_shadingsys.renderer()),
+      m_attribs(NULL), m_globals(NULL)
 {
     m_shadingsys.m_stat_contexts += 1;
 }

@@ -40,7 +40,7 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
     # Command to turn the .cpp file into LLVM assembly language .s, into
     # LLVM bitcode .bc, then back into a C++ file with the bc embedded!
     ADD_CUSTOM_COMMAND ( OUTPUT ${llvm_bc_cpp}
-      COMMAND llvm-g++ ${LLVM_COMPILE_FLAGS} -I${CMAKE_CURRENT_SOURCE_DIR} -I${CMAKE_SOURCE_DIR}/include -I${OPENIMAGEIOHOME}/include -I${ILMBASE_INCLUDE_AREA} -S -emit-llvm -o ${llvm_asm} ${llvm_src}
+      COMMAND llvm-g++ ${LLVM_COMPILE_FLAGS} -I${CMAKE_CURRENT_SOURCE_DIR} -I${CMAKE_SOURCE_DIR}/include -I${OPENIMAGEIOHOME}/include -I${ILMBASE_INCLUDE_AREA} -I${Boost_INCLUDE_DIRS} -S -emit-llvm -o ${llvm_asm} ${llvm_src}
       COMMAND llvm-as -f -o ${llvm_bc} ${llvm_asm}
       COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/serialize-bc.bash ${llvm_bc} ${llvm_bc_cpp}
       MAIN_DEPENDENCY ${llvm_src}

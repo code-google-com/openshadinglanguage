@@ -688,6 +688,10 @@ public:
     ///
     ShadingSystemImpl & shadingsys () const { return m_shadingsys; }
 
+    /// Get a pointer to the RendererServices for this execution.
+    ///
+    RendererServices *renderer () const { return m_renderer; }
+
     /// Return a pointer to our shader globals structure.
     ///
     ShaderGlobals *globals () const { return m_globals; }
@@ -777,6 +781,7 @@ public:
 
 private:
     ShadingSystemImpl &m_shadingsys;    ///< Backpointer to shadingsys
+    RendererServices *m_renderer;       ///< Ptr to renderer services
     ShadingAttribState *m_attribs;      ///< Ptr to shading attrib state
     ShaderGlobals *m_globals;           ///< Ptr to shader globals
     std::vector<char> m_heap;           ///< Heap memory
@@ -1235,7 +1240,8 @@ struct SingleShaderGlobal {
     float dtime;           ///< Time interval for each sample
     Vec3 dPdtime;          ///< Velocity
     Vec3 Ps, dPsdx, dPsdy; ///< Point being lit
-    void* renderstate;     ///< Renderer context for each sample
+    void* renderstate;     ///< Renderer state for each sample
+    ShadingContext* context; ///< ShadingContext
     TransformationPtr object2common; /// Object->common xform
     TransformationPtr shader2common; /// Shader->common xform
     ClosureColor* Ci;      ///< Output colors
