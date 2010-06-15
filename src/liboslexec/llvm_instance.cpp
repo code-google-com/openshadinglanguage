@@ -83,6 +83,8 @@ static ustring op_logb("logb");
 static ustring op_lt("lt");
 static ustring op_luminance("luminance");
 static ustring op_matrix("matrix");
+static ustring op_mxcompassign("mxcompassign");
+static ustring op_mxcompref("mxcompref");
 static ustring op_neg("neg");
 static ustring op_neq("neq");
 static ustring op_nop("nop");
@@ -486,6 +488,41 @@ RuntimeOptimizer::llvm_load_value (const Symbol& sym, int deriv,
 
 
 
+llvm::Value *
+RuntimeOptimizer::llvm_load_component_value (const Symbol& sym, int deriv,
+                                             llvm::Value *component)
+{
+    bool has_derivs = sym.has_derivs();
+    if (!has_derivs && deriv != 0) {
+        // Regardless of what object this is, if it doesn't have derivs but
+        // we're asking for them, return 0.  Integers don't have derivs
+        // so we don't need to worry about that case.
+        ASSERT (sym.typespec().is_floatbased() && 
+                "can't ask for derivs of an int");
+        return llvm_constant (0.0f);
+    }
+
+    // Start with the initial pointer to the value's memory location
+    llvm::Value* result = llvm_get_pointer (sym, deriv);
+    if (!result)
+        return NULL;  // Error
+
+    // Special case: a matrix is stored as a struct whose one field
+    // is an array of the values, so it needs an extra GEP.
+    TypeDesc t = sym.typespec().simpletype();
+    if (t.aggregate == TypeDesc::MATRIX44)
+        result = builder().CreateConstGEP2_32 (result, 0, 0);
+
+    ASSERT (t.aggregate != TypeDesc::SCALAR);
+    result = builder().CreateConstGEP1_32 (result, 0);  // Find the memory
+    result = builder().CreateGEP (result, component);   // Find the component
+
+    // Now grab the value
+    return builder().CreateLoad (result);
+}
+
+
+
 bool
 RuntimeOptimizer::llvm_store_value (llvm::Value* new_val, const Symbol& sym,
                                     int deriv, llvm::Value* arrayindex,
@@ -512,6 +549,40 @@ RuntimeOptimizer::llvm_store_value (llvm::Value* new_val, const Symbol& sym,
     // If it's multi-component (triple or matrix), step to the right field
     if (! sym.typespec().is_closure() && t.aggregate > 1)
         result = builder().CreateConstGEP2_32 (result, 0, component);
+
+    // Finally, store the value.
+    builder().CreateStore (new_val, result);
+    return true;
+}
+
+
+
+bool
+RuntimeOptimizer::llvm_store_component_value (llvm::Value* new_val,
+                                              const Symbol& sym, int deriv,
+                                              llvm::Value* component)
+{
+    bool has_derivs = sym.has_derivs();
+    if (!has_derivs && deriv != 0) {
+        // Attempt to store deriv in symbol that doesn't have it is just a nop
+        return true;
+    }
+
+    // Let llvm_get_pointer do most of the heavy lifting to get us a
+    // pointer to where our data lives.
+    llvm::Value *result = llvm_get_pointer (sym, deriv);
+    if (!result)
+        return false;  // Error
+
+    // Special case: a matrix is stored as a struct whose one field
+    // is an array of the values, so it needs an extra GEP.
+    TypeDesc t = sym.typespec().simpletype();
+    if (t.aggregate == TypeDesc::MATRIX44)
+        result = builder().CreateConstGEP2_32 (result, 0, 0);
+
+    ASSERT (t.aggregate != TypeDesc::SCALAR);
+    result = builder().CreateConstGEP1_32 (result, 0);  // Find the memory
+    result = builder().CreateGEP (result, component);   // Find the component
 
     // Finally, store the value.
     builder().CreateStore (new_val, result);
@@ -1236,55 +1307,86 @@ LLVMGEN (llvm_gen_assign)
 
 
 
-// Component reference
+// Vector component reference
 LLVMGEN (llvm_gen_compref)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
-    Symbol& dst = *rop.opargsym (op, 0);
-    Symbol& src = *rop.opargsym (op, 1);
-    Symbol& index = *rop.opargsym (op, 2);
-    if (SkipSymbol(dst) ||
-        SkipSymbol(src) ||
-        SkipSymbol(index))
-        return false;
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& Val = *rop.opargsym (op, 1);
+    Symbol& Index = *rop.opargsym (op, 2);
 
-    bool dst_derivs = dst.has_derivs();
-    int num_components = src.typespec().simpletype().aggregate;
-
-    bool dst_float = dst.typespec().is_floatbased();
-    bool src_float = src.typespec().is_floatbased();
-
-    // Get src component index
-    if (!index.is_constant()) {
-        rop.shadingsys().info ("punting on non-constant index for now. annoying\n");
-        // FIXME
-        return false;
+    for (int d = 0;  d < 3;  ++d) {  // deriv
+        llvm::Value *val = NULL; 
+        // FIXME -- should we test for out-of-range component?
+        if (Index.is_constant()) {
+            val = rop.llvm_load_value (Val, d, *((int*)Index.data()));
+        } else {
+            llvm::Value *c = rop.llvm_load_value(Index, d);
+            val = rop.llvm_load_component_value (Val, d, c);
+        }
+        rop.llvm_store_value (val, Result, d);
+        if (! Result.has_derivs())  // skip the derivs if we don't need them
+            break;
     }
-    int const_index = *((int*)index.data());
-    if (const_index < 0 || const_index >= num_components) {
-        rop.shadingsys().warning ("index out of range for object (idx = %d, num_comp = %d)\n", const_index, num_components);
-        return false;
+    return true;
+}
+
+
+
+// Matrix component reference
+LLVMGEN (llvm_gen_mxcompref)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& M = *rop.opargsym (op, 1);
+    Symbol& Row = *rop.opargsym (op, 2);
+    Symbol& Col = *rop.opargsym (op, 3);
+
+    llvm::Value *val = NULL; 
+    // FIXME -- should we test for out-of-range component?
+    if (Row.is_constant() && Col.is_constant()) {
+        int comp = 4 * ((int*)Row.data())[0] + ((int*)Col.data())[0];
+        val = rop.llvm_load_value (M, 0, comp);
+    } else {
+        llvm::Value *row = rop.llvm_load_value (Row);
+        llvm::Value *col = rop.llvm_load_value (Col);
+        llvm::Value *comp = rop.builder().CreateMul (row, rop.llvm_constant(4));
+        comp = rop.builder().CreateAdd (comp, col);
+        val = rop.llvm_load_component_value (M, 0, comp);
+    }
+    rop.llvm_store_value (val, Result);
+    if (Result.has_derivs()) {
+        llvm::Value *zero = rop.llvm_constant (0.0f);
+        rop.llvm_store_value (zero, Result, 1);
+        rop.llvm_store_value (zero, Result, 2);
     }
 
-    llvm::Value* src_val = rop.loadLLVMValue (src, const_index, 0);
-    if (!src_val) return false;
+    return true;
+}
 
-    // Perform the assignment
-    if (dst_float && !src_float) {
-        // need int -> float
-        src_val = rop.builder().CreateSIToFP(src_val, rop.llvm_type_float());
-    } else if (!dst_float && src_float) {
-        // float -> int
-        src_val = rop.builder().CreateFPToSI(src_val, rop.llvm_type_int());
-    }
 
-    // compref is: scalar = vector[int]
-    rop.storeLLVMValue (src_val, dst, 0, 0);
 
-    if (dst_derivs) {
-        // mul results in <a * b, a * b_dx + b * a_dx, a * b_dy + b * a_dy>
-        rop.shadingsys().info ("punting on derivatives for now\n");
-        // FIXME
+// Matrix component assignment
+LLVMGEN (llvm_gen_mxcompassign)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& Row = *rop.opargsym (op, 1);
+    Symbol& Col = *rop.opargsym (op, 2);
+    Symbol& Val = *rop.opargsym (op, 3);
+
+    llvm::Value *val = rop.llvm_load_value (Val, 0, 0, TypeDesc::TypeFloat);
+
+    // FIXME -- should we test for out-of-range component?
+    if (Row.is_constant() && Col.is_constant()) {
+        int comp = 4 * ((int*)Row.data())[0] + ((int*)Col.data())[0];
+        rop.llvm_store_value (val, Result, 0, comp);
+    } else {
+        llvm::Value *row = rop.llvm_load_value(Row);
+        llvm::Value *col = rop.llvm_load_value(Col);
+        llvm::Value *comp = rop.builder().CreateMul (row, rop.llvm_constant(4));
+        comp = rop.builder().CreateAdd (comp, col);
+        rop.llvm_store_component_value (val, Result, 0, comp);
     }
     return true;
 }
@@ -1876,6 +1978,8 @@ initialize_llvm_generator_table ()
     INIT (cross);
     INIT (normalize);
     INIT (compref);
+    INIT (mxcompassign);
+    INIT (mxcompref);
     INIT2 (eq, llvm_gen_compare_op);
     INIT2 (neq, llvm_gen_compare_op);
     INIT2 (lt, llvm_gen_compare_op);

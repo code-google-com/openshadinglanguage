@@ -264,7 +264,12 @@ public:
                                   llvm::Value *arrayindex, int component,
                                   TypeDesc cast=TypeDesc::UNKNOWN);
 
-    /// Non-array version of llvm_load_value, with default defiv &
+    /// llvm_load_value with non-constant component designation.  Does
+    /// not work with arrays or do type casts!
+    llvm::Value *llvm_load_component_value (const Symbol& sym, int deriv,
+                                            llvm::Value *component);
+
+    /// Non-array version of llvm_load_value, with default deriv &
     /// component.
     llvm::Value *llvm_load_value (const Symbol& sym, int deriv = 0,
                                   int component = 0,
@@ -294,6 +299,11 @@ public:
                            int deriv=0, int component=0) {
         return llvm_store_value (new_val, sym, deriv, NULL, component);
     }
+
+    /// llvm_store_value with non-constant component designation.  Does
+    /// not work with arrays or do type casts!
+    bool llvm_store_component_value (llvm::Value *new_val, const Symbol& sym,
+                                     int deriv, llvm::Value *component);
 
     /// Legacy version
     ///
