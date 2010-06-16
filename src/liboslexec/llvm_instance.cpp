@@ -59,8 +59,6 @@ static ustring op_ceil("ceil");
 static ustring op_color("color");
 static ustring op_compl("compl");
 static ustring op_cos("cos");
-static ustring op_cross("cross");
-static ustring op_dot("dot");
 static ustring op_dowhile("dowhile");
 static ustring op_end("end");
 static ustring op_eq("eq");
@@ -75,7 +73,6 @@ static ustring op_ge("ge");
 static ustring op_gt("gt");
 static ustring op_if("if");
 static ustring op_le("le");
-static ustring op_length("length");
 static ustring op_log10("log10");
 static ustring op_log2("log2");
 static ustring op_logb("logb");
@@ -610,7 +607,8 @@ RuntimeOptimizer::llvm_call_function (const char *name,
 
 llvm::Value *
 RuntimeOptimizer::llvm_call_function (const char *name, 
-                                      const Symbol **symargs, int nargs)
+                                      const Symbol **symargs, int nargs,
+                                      bool deriv_ptrs)
 {
     std::vector<llvm::Value *> valargs;
     valargs.resize ((size_t)nargs);
@@ -618,7 +616,8 @@ RuntimeOptimizer::llvm_call_function (const char *name,
         const Symbol &s = *(symargs[i]);
         if (s.typespec().is_closure())
             valargs[i] = loadLLVMValue (s);
-        else if (s.typespec().simpletype().aggregate > 1)
+        else if (s.typespec().simpletype().aggregate > 1 ||
+                 (deriv_ptrs && s.has_derivs()))
             valargs[i] = llvm_void_ptr (s);
         else
             valargs[i] = loadLLVMValue (s);
@@ -629,36 +628,38 @@ RuntimeOptimizer::llvm_call_function (const char *name,
 
 
 llvm::Value *
-RuntimeOptimizer::llvm_call_function (const char *name, const Symbol &A)
+RuntimeOptimizer::llvm_call_function (const char *name, const Symbol &A,
+                                      bool deriv_ptrs)
 {
     const Symbol *args[1];
     args[0] = &A;
-    return llvm_call_function (name, args, 1);
+    return llvm_call_function (name, args, 1, deriv_ptrs);
 }
 
 
 
 llvm::Value *
 RuntimeOptimizer::llvm_call_function (const char *name, const Symbol &A,
-                                      const Symbol &B)
+                                      const Symbol &B, bool deriv_ptrs)
 {
     const Symbol *args[2];
     args[0] = &A;
     args[1] = &B;
-    return llvm_call_function (name, args, 2);
+    return llvm_call_function (name, args, 2, deriv_ptrs);
 }
 
 
 
 llvm::Value *
 RuntimeOptimizer::llvm_call_function (const char *name, const Symbol &A,
-                                      const Symbol &B, const Symbol &C)
+                                      const Symbol &B, const Symbol &C,
+                                      bool deriv_ptrs)
 {
     const Symbol *args[3];
     args[0] = &A;
     args[1] = &B;
     args[2] = &C;
-    return llvm_call_function (name, args, 3);
+    return llvm_call_function (name, args, 3, deriv_ptrs);
 }
 
 
@@ -1338,6 +1339,31 @@ LLVMGEN (llvm_gen_compref)
 
 
 
+// Vector component assignment
+LLVMGEN (llvm_gen_compassign)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& Index = *rop.opargsym (op, 1);
+    Symbol& Val = *rop.opargsym (op, 2);
+
+    for (int d = 0;  d < 3;  ++d) {  // deriv
+        llvm::Value *val = rop.llvm_load_value (Val, d, 0, TypeDesc::TypeFloat);
+        // FIXME -- should we test for out-of-range component?
+        if (Index.is_constant()) {
+            rop.llvm_store_value (val, Result, d, *((int*)Index.data()));
+        } else {
+            llvm::Value *c = rop.llvm_load_value(Index, d);
+            rop.llvm_store_component_value (val, Result, d, c);
+        }
+        if (! Result.has_derivs())  // skip the derivs if we don't need them
+            break;
+    }
+    return true;
+}
+
+
+
 // Matrix component reference
 LLVMGEN (llvm_gen_mxcompref)
 {
@@ -1630,7 +1656,7 @@ LLVMGEN (llvm_gen_compare_op)
 
 
 
-// unary reduction ops (length, luminance, determinant (much more complicated...))
+// unary reduction ops (length, luminance, (much more complicated...))
 LLVMGEN (llvm_gen_unary_reduction)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
@@ -1658,9 +1684,7 @@ LLVMGEN (llvm_gen_unary_reduction)
         // Perform the op
         llvm::Value* result = 0;
 
-        if (opname == op_length) {
-            result = rop.builder().CreateFMul(src_val, src_val);
-        } else if (opname == op_luminance) {
+        if (opname == op_luminance) {
             float coeff = 0.f;
             switch (i) {
             case 0: coeff = .2126f; break;
@@ -1683,12 +1707,6 @@ LLVMGEN (llvm_gen_unary_reduction)
     }
 
     if (final_result) {
-        // Compute sqrtf(result) if it's length instead of luminance
-        if (opname == op_length) {
-            // Take sqrt
-            const llvm::Type* float_ty = rop.llvm_type_float();
-            final_result = rop.builder().CreateCall(llvm::Intrinsic::getDeclaration(rop.llvm_module(), llvm::Intrinsic::sqrt, &float_ty, 1), final_result);
-        }
 
         rop.storeLLVMValue (final_result, dst, 0, 0);
         if (dst_derivs) {
@@ -1701,91 +1719,79 @@ LLVMGEN (llvm_gen_unary_reduction)
 
 
 
-// dot. This is could easily be a more general f(Agg, Agg) -> Scalar,
-// but we don't seem to have any others.
+// dot product
 LLVMGEN (llvm_gen_dot)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
-    Symbol& dst  = *rop.opargsym (op, 0);
-    Symbol& src1 = *rop.opargsym (op, 1);
-    Symbol& src2 = *rop.opargsym (op, 2);
-    if (SkipSymbol(dst) ||
-        SkipSymbol(src1) ||
-        SkipSymbol(src2))
-        return false;
+    Symbol& Result  = *rop.opargsym (op, 0);
+    Symbol& A = *rop.opargsym (op, 1);
+    Symbol& B = *rop.opargsym (op, 2);
 
-    bool dst_derivs = dst.has_derivs();
-    // Loop over the sources
-    int num_components = src1.typespec().simpletype().aggregate;
-
-    llvm::Value* final_result = 0;
-
-    for (int i = 0; i < num_components; i++) {
-        // Get src1/src2 component i
-        llvm::Value* src1_load = rop.loadLLVMValue (src1, i, 0);
-        llvm::Value* src2_load = rop.loadLLVMValue (src2, i, 0);
-
-        if (!src1_load || !src2_load) return false;
-
-        llvm::Value* result = rop.builder().CreateFMul(src1_load, src2_load);
-
-        if (final_result) {
-            final_result = rop.builder().CreateFAdd(final_result, result);
+    if (! Result.has_derivs() || (!A.has_derivs() && !B.has_derivs())) {
+        llvm::Value *r = rop.llvm_call_function ("osl_dot", A, B);
+        rop.llvm_store_value (r, Result);
+        rop.llvm_zero_derivs (Result);
+    } else {
+        // Cases with derivs
+        ASSERT (Result.has_derivs());
+        if (A.has_derivs() && B.has_derivs()) {
+            rop.llvm_call_function("osl_dot_deriv_deriv", Result, A, B, true);
+        } else if (A.has_derivs()) {
+            ASSERT (! B.has_derivs());
+            rop.llvm_call_function("osl_dot_deriv_noderiv", Result, A, B, true);
         } else {
-            final_result = result;
+            ASSERT (B.has_derivs());
+            rop.llvm_call_function("osl_dot_noderiv_deriv", Result, A, B, true);
         }
-    }
-
-    rop.storeLLVMValue (final_result, dst, 0, 0);
-    if (dst_derivs) {
-        rop.shadingsys().info ("punting on derivatives for now\n");
-        // FIXME
     }
     return true;
 }
 
 
 
-// cross.
+// cross product
 LLVMGEN (llvm_gen_cross)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
-    Symbol& dst  = *rop.opargsym (op, 0);
-    Symbol& src1 = *rop.opargsym (op, 1);
-    Symbol& src2 = *rop.opargsym (op, 2);
-    if (SkipSymbol(dst) ||
-        SkipSymbol(src1) ||
-        SkipSymbol(src2))
-        return false;
+    Symbol& Result  = *rop.opargsym (op, 0);
+    Symbol& A = *rop.opargsym (op, 1);
+    Symbol& B = *rop.opargsym (op, 2);
 
-    bool dst_derivs = dst.has_derivs();
-    int num_components = dst.typespec().simpletype().aggregate;
-
-    for (int i = 0; i < num_components; i++) {
-        // Get src1/src2 component for output i
-        int src1_idx0[3] = { 1, 2, 0 };
-        int src1_idx1[3] = { 2, 0, 1 };
-
-        int src2_idx0[3] = { 2, 0, 1 };
-        int src2_idx1[3] = { 1, 2, 0 };
-
-        llvm::Value* src1_load0 = rop.loadLLVMValue (src1, src1_idx0[i], 0);
-        llvm::Value* src1_load1 = rop.loadLLVMValue (src1, src1_idx1[i], 0);
-
-        llvm::Value* src2_load0 = rop.loadLLVMValue (src2, src2_idx0[i], 0);
-        llvm::Value* src2_load1 = rop.loadLLVMValue (src2, src2_idx1[i], 0);
-
-        if (!src1_load0 || !src1_load1 || !src2_load0 || !src2_load1) return false;
-
-        llvm::Value* prod0 = rop.builder().CreateFMul(src1_load0, src2_load0);
-        llvm::Value* prod1 = rop.builder().CreateFMul(src1_load1, src2_load1);
-        llvm::Value* result = rop.builder().CreateFSub(prod0, prod1);
-
-        rop.storeLLVMValue (result, dst, i, 0);
-        if (dst_derivs) {
-            rop.shadingsys().info ("punting on derivatives for now\n");
-            // FIXME
+    if (! Result.has_derivs() || (!A.has_derivs() && !B.has_derivs())) {
+        rop.llvm_call_function ("osl_cross", Result, A, B);
+    } else {
+        // Cases with derivs
+        ASSERT (Result.has_derivs());
+        if (A.has_derivs() && B.has_derivs()) {
+            rop.llvm_call_function("osl_cross_deriv_deriv", Result, A, B, true);
+        } else if (A.has_derivs()) {
+            ASSERT (! B.has_derivs());
+            rop.llvm_call_function("osl_cross_deriv_noderiv", Result, A, B, true);
+        } else {
+            ASSERT (B.has_derivs());
+            rop.llvm_call_function("osl_cross_noderiv_deriv", Result, A, B, true);
         }
+    }
+    return true;
+}
+
+
+
+// length
+LLVMGEN (llvm_gen_length)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result  = *rop.opargsym (op, 0);
+    Symbol& A = *rop.opargsym (op, 1);
+
+    if (! Result.has_derivs() || !A.has_derivs()) {
+        llvm::Value *r = rop.llvm_call_function ("osl_length", A);
+        rop.llvm_store_value (r, Result);
+        rop.llvm_zero_derivs (Result);
+    } else {
+        // Cases with derivs
+        ASSERT (Result.has_derivs() && A.has_derivs());
+        rop.llvm_call_function("osl_length_deriv", Result, A, true);
     }
     return true;
 }
@@ -2022,6 +2028,7 @@ initialize_llvm_generator_table ()
     INIT (dot);
     INIT (cross);
     INIT (normalize);
+    INIT (compassign);
     INIT (compref);
     INIT (mxcompassign);
     INIT (mxcompref);
@@ -2045,7 +2052,7 @@ initialize_llvm_generator_table ()
     INIT2 (normal, llvm_gen_construct_triple);
     INIT2 (color, llvm_gen_construct_triple);
     INIT (matrix);
-    INIT2 (length, llvm_gen_unary_reduction);
+    INIT (length);
     INIT2 (luminance, llvm_gen_unary_reduction);
     INIT (if);
     INIT2 (for, llvm_gen_loop_op);

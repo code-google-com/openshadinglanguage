@@ -384,16 +384,19 @@ public:
 
     /// Generate code for a call to the named function with the given
     /// arg list as symbols -- float & ints will be passed by value,
-    /// triples and matrices will be passed by address.  Return an
-    /// llvm::Value* corresponding to the return value of the function,
-    /// if any.
-    llvm::Value *llvm_call_function (const char *name,
-                                     const Symbol **args, int nargs);
-    llvm::Value *llvm_call_function (const char *name, const Symbol &A);
+    /// triples and matrices will be passed by address.  If deriv_ptrs
+    /// is true, pass pointers even for floats if they have derivs.
+    /// Return an llvm::Value* corresponding to the return value of the
+    /// function, if any.
+    llvm::Value *llvm_call_function (const char *name,  const Symbol **args,
+                                     int nargs, bool deriv_ptrs=false);
     llvm::Value *llvm_call_function (const char *name, const Symbol &A,
-                                     const Symbol &B);
+                                     bool deriv_ptrs=false);
     llvm::Value *llvm_call_function (const char *name, const Symbol &A,
-                                     const Symbol &B, const Symbol &C);
+                                     const Symbol &B, bool deriv_ptrs=false);
+    llvm::Value *llvm_call_function (const char *name, const Symbol &A,
+                                     const Symbol &B, const Symbol &C,
+                                     bool deriv_ptrs=false);
 
     /// Generate the appropriate llvm type definition for an OSL TypeSpec
     /// (this is the actual type, for example when we allocate it).
