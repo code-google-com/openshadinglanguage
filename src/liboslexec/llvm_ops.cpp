@@ -738,3 +738,32 @@ osl_substr_ssii (const char *s, int start, int length)
     b = Imath::clamp (b, 0, slen);
     return ustring(s, b, Imath::clamp (length, 0, slen)).c_str();
 }
+
+extern "C" int
+osl_regex_impl (void *sg_, const char *subject_, void *results, int nresults,
+                const char *pattern, int fullmatch)
+{
+    SingleShaderGlobal *sg = (SingleShaderGlobal *)sg_;
+    const std::string &subject (USTR(subject_).string());
+    boost::match_results<std::string::const_iterator> mresults;
+    const boost::regex &regex (sg->context->find_regex (USTR(pattern)));
+    if (nresults > 0) {
+        std::string::const_iterator start = subject.begin();
+        int r = fullmatch ? boost::regex_match (subject, mresults, regex)
+                          : boost::regex_search (subject, mresults, regex);
+        int *m = (int *)results;
+        for (int r = 0;  r < nresults;  ++r) {
+            if (r/2 < (int)mresults.size()) {
+                if ((r & 1) == 0)
+                    m[r] = mresults[r/2].first - start;
+                else
+                    m[r] = mresults[r/2].second - start;
+            } else {
+                m[r] = USTR(pattern).length();
+            }
+        }
+    } else {
+        return fullmatch ? boost::regex_match (subject, regex)
+                         : boost::regex_search (subject, regex);
+    }
+}

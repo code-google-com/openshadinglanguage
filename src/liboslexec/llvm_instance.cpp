@@ -114,8 +114,6 @@ static const char *llvm_helper_function_table[] = {
     "osl_mul_closure_float", "xCCf",
     "osl_mul_closure_color", "xCCc",
 
-//    "osl_regex_impl", "iVsi[]isii",
-
     NULL
 };
 
@@ -1434,6 +1432,21 @@ LLVMGEN (llvm_gen_mxcompassign)
 
 
 
+// Array length
+LLVMGEN (llvm_gen_arraylength)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& A = *rop.opargsym (op, 1);
+    DASSERT (Result.typespec().is_int() && A.typespec().is_array());
+
+    int len = A.typespec().arraylength();
+    rop.llvm_store_value (rop.llvm_constant(len), Result);
+    return true;
+}
+
+
+
 // Array reference
 LLVMGEN (llvm_gen_aref)
 {
@@ -1551,7 +1564,7 @@ LLVMGEN (llvm_gen_construct_triple)
 ///    matrix (...16 floats...)
 ///    matrix (space, ...16 floats...)
 ///    matrix (fromspace, tospace)
-LLVMGEN (llvm_gen_matrix)   // FIXME
+LLVMGEN (llvm_gen_matrix)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& Result = *rop.opargsym (op, 0);
@@ -1665,6 +1678,51 @@ LLVMGEN (llvm_gen_compare_op)
     // Convert the single bit bool into an int for now.
     final_result = rop.builder().CreateZExt (final_result, rop.llvm_type_int());
     rop.storeLLVMValue (final_result, Result, 0, 0);
+    return true;
+}
+
+
+
+// int regex_search (string subject, string pattern)
+// int regex_search (string subject, int results[], string pattern)
+// int regex_match (string subject, string pattern)
+// int regex_match (string subject, int results[], string pattern)
+LLVMGEN (llvm_gen_regex)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    int nargs = op.nargs();
+    ASSERT (nargs == 3 || nargs == 4);
+    Symbol &Result (*rop.opargsym (op, 0));
+    Symbol &Subject (*rop.opargsym (op, 1));
+    bool do_match_results = (nargs == 4);
+    bool fullmatch = (op.opname() == "regex_match");
+    Symbol &Match (*rop.opargsym (op, 2));
+    Symbol &Pattern (*rop.opargsym (op, 2+do_match_results));
+    ASSERT (Result.typespec().is_int() && Subject.typespec().is_string() &&
+            Pattern.typespec().is_string());
+    ASSERT (!do_match_results || 
+            (Match.typespec().is_array() &&
+             Match.typespec().elementtype().is_int()));
+
+    std::vector<llvm::Value*> call_args;
+    // First arg is ShaderGlobals ptr
+    call_args.push_back (rop.sg_void_ptr());
+    // Next arg is subject string
+    call_args.push_back (rop.llvm_load_value (Subject));
+    // Pass the results array and length (just pass 0 if no results wanted).
+    call_args.push_back (rop.llvm_void_ptr(Match));
+    if (do_match_results)
+        call_args.push_back (rop.llvm_constant(Match.typespec().arraylength()));
+    else
+        call_args.push_back (rop.llvm_constant(0));
+    // Pass the regex match pattern
+    call_args.push_back (rop.llvm_load_value (Pattern));
+    // Pass whether or not to do the full match
+    call_args.push_back (rop.llvm_constant(fullmatch));
+
+    llvm::Value *ret = rop.llvm_call_function ("osl_regex_impl", &call_args[0],
+                                               (int)call_args.size());
+    rop.llvm_store_value (ret, Result);
     return true;
 }
 
@@ -1928,7 +1986,7 @@ initialize_llvm_generator_table ()
     // INIT (ashikhmin_velvet);
     // INIT (area);
     INIT (aref);
-    // INIT (arraylength);
+    INIT (arraylength);
     INIT2 (asin, llvm_gen_generic);
     INIT (assign);
     INIT2 (atan, llvm_gen_generic);
@@ -2035,8 +2093,8 @@ initialize_llvm_generator_table ()
     // INIT (reflection);
     // INIT (refract);
     // INIT (refraction);
-    // INIT (regex_match);
-    // INIT (regex_search);
+    INIT2 (regex_match, llvm_gen_regex);
+    INIT2 (regex_search, llvm_gen_regex);
     // INIT (round);
     // INIT (setmessage);
     INIT2 (shl, llvm_gen_bitwise_binary_op);
