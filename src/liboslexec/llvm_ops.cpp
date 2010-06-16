@@ -293,17 +293,9 @@ osl_dot (void *a, void *b)
 }
 
 extern "C" void
-osl_dot_deriv_deriv (void *result, void *a_, void *b_)
+osl_dot_deriv_deriv (void *result, void *a, void *b)
 {
-    const Dual2<Vec3> &a (DVEC(a_));
-    const Dual2<Vec3> &b (DVEC(b_));
-    Dual2<float> ax = Dual2<float> (a.val().x, a.dx().x, a.dy().x);
-    Dual2<float> ay = Dual2<float> (a.val().y, a.dx().y, a.dy().y);
-    Dual2<float> az = Dual2<float> (a.val().z, a.dx().z, a.dy().z);
-    Dual2<float> bx = Dual2<float> (b.val().x, b.dx().x, b.dy().x);
-    Dual2<float> by = Dual2<float> (b.val().y, b.dx().y, b.dy().y);
-    Dual2<float> bz = Dual2<float> (b.val().z, b.dx().z, b.dy().z);
-    DFLOAT(result) = ax*bx + ay*by + az*bz;
+    DFLOAT(result) = dot (DVEC(a), DVEC(b));
 }
 
 extern "C" void
@@ -328,24 +320,9 @@ osl_cross (void *result, void *a, void *b)
 }
 
 extern "C" void
-osl_cross_deriv_deriv (void *result, void *a_, void *b_)
+osl_cross_deriv_deriv (void *result, void *a, void *b)
 {
-    const Dual2<Vec3> &a (DVEC(a_));
-    const Dual2<Vec3> &b (DVEC(b_));
-    Dual2<float> ax = Dual2<float> (a.val().x, a.dx().x, a.dy().x);
-    Dual2<float> ay = Dual2<float> (a.val().y, a.dx().y, a.dy().y);
-    Dual2<float> az = Dual2<float> (a.val().z, a.dx().z, a.dy().z);
-    Dual2<float> bx = Dual2<float> (b.val().x, b.dx().x, b.dy().x);
-    Dual2<float> by = Dual2<float> (b.val().y, b.dx().y, b.dy().y);
-    Dual2<float> bz = Dual2<float> (b.val().z, b.dx().z, b.dy().z);
-
-    Dual2<float> nx = ay*bz - az*by;
-    Dual2<float> ny = az*bx - ax*bz;
-    Dual2<float> nz = ax*by - ay*bx;
-
-    DVEC(result).set (Vec3(nx.val(), ny.val(), nz.val()),
-                      Vec3(nx.dx(),  ny.dx(),  nz.dx()  ),
-                      Vec3(nx.dy(),  ny.dy(),  nz.dy()  ));
+    DVEC(result) = cross (DVEC(a), DVEC(b));
 }
 
 extern "C" void
@@ -370,14 +347,55 @@ osl_length (void *a)
 }
 
 extern "C" void
-osl_length_deriv (void *result, void *a_)
+osl_length_deriv (void *result, void *a)
 {
-    const Dual2<Vec3> &a (DVEC(a_));
-    Dual2<float> ax = Dual2<float> (a.val().x, a.dx().x, a.dy().x);
-    Dual2<float> ay = Dual2<float> (a.val().y, a.dx().y, a.dy().y);
-    Dual2<float> az = Dual2<float> (a.val().z, a.dx().z, a.dy().z);
-    DFLOAT(result) = sqrt(ax*ax + ay*ay + az*az);
+    DVEC(result) = length(DVEC(a));
 }
+
+
+extern "C" float
+osl_distance (void *a_, void *b_)
+{
+    const Vec3 &a (VEC(a_));
+    const Vec3 &b (VEC(b_));
+    float x = a[0] - b[0];
+    float y = a[1] - b[1];
+    float z = a[2] - b[2];
+    return sqrtf (x*x + y*y + z*z);
+}
+
+extern "C" void
+osl_distance_deriv_deriv (void *result, void *a, void *b)
+{
+    DVEC(result) = distance (DVEC(a), DVEC(b));
+}
+
+extern "C" void
+osl_distance_deriv_noderiv (void *result, void *a, void *b)
+{
+    DVEC(result) = distance (DVEC(a), VEC(b));
+}
+
+extern "C" void
+osl_distance_noderiv_deriv (void *result, void *a, void *b)
+{
+    DVEC(result) = distance (VEC(a), DVEC(b));
+}
+
+
+extern "C" void
+osl_normalize (void *result, void *a)
+{
+    VEC(result) = VEC(a).normalized();
+}
+
+extern "C" void
+osl_normalize_deriv (void *result, void *a)
+{
+    DVEC(result) = normalize(DVEC(a));
+}
+
+
 
 
 

@@ -82,7 +82,6 @@ static ustring op_neg("neg");
 static ustring op_neq("neq");
 static ustring op_nop("nop");
 static ustring op_normal("normal");
-static ustring op_normalize("normalize");
 static ustring op_point("point");
 static ustring op_printf("printf");
 static ustring op_shl("shl");
@@ -1759,6 +1758,7 @@ LLVMGEN (llvm_gen_cross)
 
     if (! Result.has_derivs() || (!A.has_derivs() && !B.has_derivs())) {
         rop.llvm_call_function ("osl_cross", Result, A, B);
+        rop.llvm_zero_derivs (Result);
     } else {
         // Cases with derivs
         ASSERT (Result.has_derivs());
@@ -1798,63 +1798,49 @@ LLVMGEN (llvm_gen_length)
 
 
 
-// normalize. This is sort of like unary with a side product (length)
-// that we need to then apply to the whole vector. TODO(boulos): Try
-// to reuse the length code maybe?
+// distance
+LLVMGEN (llvm_gen_distance)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result  = *rop.opargsym (op, 0);
+    Symbol& A = *rop.opargsym (op, 1);
+    Symbol& B = *rop.opargsym (op, 2);
+
+    if (! Result.has_derivs() || (!A.has_derivs() && !B.has_derivs())) {
+        llvm::Value *val = rop.llvm_call_function ("osl_distance", A, B);
+        rop.llvm_store_value (val, Result);
+        rop.llvm_zero_derivs (Result);
+    } else {
+        // Cases with derivs
+        ASSERT (Result.has_derivs());
+        if (A.has_derivs() && B.has_derivs()) {
+            rop.llvm_call_function("osl_distance_deriv_deriv", Result, A, B, true);
+        } else if (A.has_derivs()) {
+            ASSERT (! B.has_derivs());
+            rop.llvm_call_function("osl_distance_deriv_noderiv", Result, A, B, true);
+        } else {
+            ASSERT (B.has_derivs());
+            rop.llvm_call_function("osl_distance_noderiv_deriv", Result, A, B, true);
+        }
+    }
+    return true;
+}
+
+
+
 LLVMGEN (llvm_gen_normalize)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
-    Symbol& dst  = *rop.opargsym (op, 0);
-    Symbol& src = *rop.opargsym (op, 1);
-    if (SkipSymbol(dst) ||
-        SkipSymbol(src))
-        return false;
+    Symbol& Result  = *rop.opargsym (op, 0);
+    Symbol& A = *rop.opargsym (op, 1);
 
-    bool dst_derivs = dst.has_derivs();
-    int num_components = dst.typespec().simpletype().aggregate;
-
-    llvm::Value* length_squared = 0;
-
-    for (int i = 0; i < num_components; i++) {
-        // Get src component i
-        llvm::Value* src_load = rop.loadLLVMValue (src, i, 0);
-
-        if (!src_load) return false;
-
-        llvm::Value* src_val = src_load;
-
-        // Perform the op
-        llvm::Value* result = rop.builder().CreateFMul(src_val, src_val);
-
-        if (length_squared) {
-            length_squared = rop.builder().CreateFAdd(length_squared, result);
-        } else {
-            length_squared = result;
-        }
-    }
-
-    // Take sqrt
-    const llvm::Type* float_ty = rop.llvm_type_float();
-    llvm::Value* length = rop.builder().CreateCall(llvm::Intrinsic::getDeclaration(rop.llvm_module(), llvm::Intrinsic::sqrt, &float_ty, 1), length_squared);
-    // Compute 1/length
-    llvm::Value* inv_length = rop.builder().CreateFDiv(llvm::ConstantFP::get(rop.llvm_context(), llvm::APFloat(1.f)), length);
-
-    for (int i = 0; i < num_components; i++) {
-        // Get src component i
-        llvm::Value* src_load = rop.loadLLVMValue (src, i, 0);
-
-        if (!src_load) return false;
-
-        llvm::Value* src_val = src_load;
-
-        // Perform the op (src_val * inv_length is the order in opvector.cpp)
-        llvm::Value* result = rop.builder().CreateFMul(src_val, inv_length);
-
-        rop.storeLLVMValue (result, dst, i, 0);
-        if (dst_derivs) {
-            rop.shadingsys().info ("punting on derivatives for now\n");
-            // FIXME
-        }
+    if (! Result.has_derivs() || !A.has_derivs()) {
+        rop.llvm_call_function ("osl_normalize", Result, A);
+        rop.llvm_zero_derivs (Result);
+    } else {
+        // Cases with derivs
+        ASSERT (Result.has_derivs() && A.has_derivs());
+        rop.llvm_call_function("osl_normalize_deriv", Result, A, true);
     }
     return true;
 }
@@ -2027,6 +2013,8 @@ initialize_llvm_generator_table ()
     INIT2 (shr, llvm_gen_bitwise_binary_op);
     INIT (dot);
     INIT (cross);
+    INIT (distance);
+    INIT (length);
     INIT (normalize);
     INIT (compassign);
     INIT (compref);
@@ -2052,7 +2040,6 @@ initialize_llvm_generator_table ()
     INIT2 (normal, llvm_gen_construct_triple);
     INIT2 (color, llvm_gen_construct_triple);
     INIT (matrix);
-    INIT (length);
     INIT2 (luminance, llvm_gen_unary_reduction);
     INIT (if);
     INIT2 (for, llvm_gen_loop_op);
