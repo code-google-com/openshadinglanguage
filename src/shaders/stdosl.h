@@ -82,6 +82,14 @@ normal transform (string fromspace, string tospace, normal x)
 }
 
 
+float degrees (float x) { return x*(180.0/M_PI); }
+vector degrees (vector x) { return x*(180.0/M_PI); }
+color degrees (color x) { return x*(180.0/M_PI); }
+
+float radians (float x) { return x*(M_PI/180.0); }
+vector radians (vector x) { return x*(M_PI/180.0); }
+color radians (color x) { return x*(M_PI/180.0); }
+
 
 
 closure color cloth(normal N, float s, float t, color diff_warp, color diff_weft, 

@@ -66,6 +66,155 @@ osl_printf (const char* format_str, ...)
 }
 
 
+#define MAKE_UNARY_PERCOMPONENT_OP(name,floatfunc,dualfunc)         \
+extern "C" float                                                    \
+osl_##name##_ff (float a)                                           \
+{                                                                   \
+    return floatfunc(a);                                            \
+}                                                                   \
+                                                                    \
+extern "C" void                                                     \
+osl_##name##_dfdf (void *r, void *a)                                \
+{                                                                   \
+    DFLOAT(r) = dualfunc (DFLOAT(a));                               \
+}                                                                   \
+                                                                    \
+extern "C" void                                                     \
+osl_##name##_vv (void *r_, void *a_)                                \
+{                                                                   \
+    Vec3 &r (VEC(r_));                                              \
+    Vec3 &a (VEC(a_));                                              \
+    r[0] = floatfunc (a[0]);                                        \
+    r[1] = floatfunc (a[1]);                                        \
+    r[2] = floatfunc (a[2]);                                        \
+}                                                                   \
+                                                                    \
+extern "C" void                                                     \
+osl_##name##_dvdv (void *r_, void *a_)                              \
+{                                                                   \
+    Dual2<Vec3> &r (DVEC(r_));                                      \
+    Dual2<Vec3> &a (DVEC(a_));                                      \
+    /* Swizzle the Dual2<Vec3>'s into 3 Dual2<float>'s */           \
+    Dual2<float> ax, ay, az;                                        \
+    ax = dualfunc (Dual2<float> (a.val().x, a.dx().x, a.dy().x));   \
+    ay = dualfunc (Dual2<float> (a.val().y, a.dx().y, a.dy().y));   \
+    az = dualfunc (Dual2<float> (a.val().z, a.dx().z, a.dy().z));   \
+    /* Now swizzle back */                                          \
+    r.set (Vec3( ax.val(), ay.val(), az.val()),                     \
+           Vec3( ax.dx(),  ay.dx(),  az.dx() ),                     \
+           Vec3( ax.dy(),  ay.dy(),  az.dy() ));                    \
+}
+
+
+#define MAKE_BINARY_PERCOMPONENT_OP(name,floatfunc,dualfunc)        \
+extern "C" float osl_##name##_fff (float a, float b) {              \
+    return floatfunc(a,b);                                          \
+}                                                                   \
+                                                                    \
+extern "C" void osl_##name##_dfdfdf (void *r, void *a, void *b) {   \
+    DFLOAT(r) = dualfunc (DFLOAT(a),DFLOAT(b));                     \
+}                                                                   \
+                                                                    \
+extern "C" void osl_##name##_dffdf (void *r, float a, void *b) {    \
+    DFLOAT(r) = dualfunc (Dual2<float>(a),DFLOAT(b));               \
+}                                                                   \
+                                                                    \
+extern "C" void osl_##name##_dfdff (void *r, void *a, float b) {    \
+    DFLOAT(r) = dualfunc (DFLOAT(a),Dual2<float>(b));               \
+}                                                                   \
+                                                                    \
+extern "C" void osl_##name##_vvv (void *r_, void *a_, void *b_) {   \
+    Vec3 &r (VEC(r_));                                              \
+    Vec3 &a (VEC(a_));                                              \
+    Vec3 &b (VEC(b_));                                              \
+    r[0] = floatfunc (a[0], b[0]);                                  \
+    r[1] = floatfunc (a[1], b[1]);                                  \
+    r[2] = floatfunc (a[2], b[2]);                                  \
+}                                                                   \
+                                                                    \
+extern "C" void osl_##name##_dvdvdv (void *r_, void *a_, void *b_)  \
+{                                                                   \
+    Dual2<Vec3> &r (DVEC(r_));                                      \
+    Dual2<Vec3> &a (DVEC(a_));                                      \
+    Dual2<Vec3> &b (DVEC(b_));                                      \
+    /* Swizzle the Dual2<Vec3>'s into 3 Dual2<float>'s */           \
+    Dual2<float> ax, ay, az;                                        \
+    ax = dualfunc (Dual2<float> (a.val().x, a.dx().x, a.dy().x),    \
+                   Dual2<float> (b.val().x, b.dx().x, b.dy().x));   \
+    ay = dualfunc (Dual2<float> (a.val().y, a.dx().y, a.dy().y),    \
+                   Dual2<float> (b.val().y, b.dx().y, b.dy().y));   \
+    az = dualfunc (Dual2<float> (a.val().z, a.dx().z, a.dy().z),    \
+                   Dual2<float> (b.val().z, b.dx().z, b.dy().z));   \
+    /* Now swizzle back */                                          \
+    r.set (Vec3( ax.val(), ay.val(), az.val()),                     \
+           Vec3( ax.dx(),  ay.dx(),  az.dx() ),                     \
+           Vec3( ax.dy(),  ay.dy(),  az.dy() ));                    \
+}                                                                   \
+                                                                    \
+extern "C" void osl_##name##_dvvdv (void *r_, void *a_, void *b_)   \
+{                                                                   \
+    Dual2<Vec3> &r (DVEC(r_));                                      \
+    Dual2<Vec3> a (VEC(a_), Vec3(0,0,0), Vec3(0,0,0));              \
+    Dual2<Vec3> &b (DVEC(b_));                                      \
+    /* Swizzle the Dual2<Vec3>'s into 3 Dual2<float>'s */           \
+    Dual2<float> ax, ay, az;                                        \
+    ax = dualfunc (Dual2<float> (a.val().x, a.dx().x, a.dy().x),    \
+                   Dual2<float> (b.val().x, b.dx().x, b.dy().x));   \
+    ay = dualfunc (Dual2<float> (a.val().y, a.dx().y, a.dy().y),    \
+                   Dual2<float> (b.val().y, b.dx().y, b.dy().y));   \
+    az = dualfunc (Dual2<float> (a.val().z, a.dx().z, a.dy().z),    \
+                   Dual2<float> (b.val().z, b.dx().z, b.dy().z));   \
+    /* Now swizzle back */                                          \
+    r.set (Vec3( ax.val(), ay.val(), az.val()),                     \
+           Vec3( ax.dx(),  ay.dx(),  az.dx() ),                     \
+           Vec3( ax.dy(),  ay.dy(),  az.dy() ));                    \
+}                                                                   \
+                                                                    \
+extern "C" void osl_##name##_dvdvv (void *r_, void *a_, void *b_)   \
+{                                                                   \
+    Dual2<Vec3> &r (DVEC(r_));                                      \
+    Dual2<Vec3> &a (DVEC(a_));                                      \
+    Dual2<Vec3> b (VEC(b_), Vec3(0,0,0), Vec3(0,0,0));              \
+    /* Swizzle the Dual2<Vec3>'s into 3 Dual2<float>'s */           \
+    Dual2<float> ax, ay, az;                                        \
+    ax = dualfunc (Dual2<float> (a.val().x, a.dx().x, a.dy().x),    \
+                   Dual2<float> (b.val().x, b.dx().x, b.dy().x));   \
+    ay = dualfunc (Dual2<float> (a.val().y, a.dx().y, a.dy().y),    \
+                   Dual2<float> (b.val().y, b.dx().y, b.dy().y));   \
+    az = dualfunc (Dual2<float> (a.val().z, a.dx().z, a.dy().z),    \
+                   Dual2<float> (b.val().z, b.dx().z, b.dy().z));   \
+    /* Now swizzle back */                                          \
+    r.set (Vec3( ax.val(), ay.val(), az.val()),                     \
+           Vec3( ax.dx(),  ay.dx(),  az.dx() ),                     \
+           Vec3( ax.dy(),  ay.dy(),  az.dy() ));                    \
+}
+
+
+MAKE_UNARY_PERCOMPONENT_OP (sin, sinf, sin)
+MAKE_UNARY_PERCOMPONENT_OP (cos, cosf, cos)
+MAKE_UNARY_PERCOMPONENT_OP (tan, tanf, tan)
+
+
+inline float safe_asinf (float x) {
+    if (x >=  1.0f) return  M_PI/2;
+    if (x <= -1.0f) return -M_PI/2;
+    return std::asin (x);
+}
+
+inline float safe_acosf (float x) {
+    if (x >=  1.0f) return 0.0f;
+    if (x <= -1.0f) return M_PI;
+    return std::acos (x);
+}
+
+MAKE_UNARY_PERCOMPONENT_OP (asin, safe_asinf, asin)
+MAKE_UNARY_PERCOMPONENT_OP (acos, safe_acosf, acos)
+MAKE_UNARY_PERCOMPONENT_OP (atan, std::atan, atan)
+MAKE_BINARY_PERCOMPONENT_OP (atan2, std::atan2, atan2)
+
+
+
+// Closure functions
 
 extern "C" void
 osl_closure_clear (ClosureColor *r)

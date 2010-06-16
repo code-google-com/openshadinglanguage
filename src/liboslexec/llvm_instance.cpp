@@ -58,7 +58,6 @@ static ustring op_bitor("bitor");
 static ustring op_ceil("ceil");
 static ustring op_color("color");
 static ustring op_compl("compl");
-static ustring op_cos("cos");
 static ustring op_dowhile("dowhile");
 static ustring op_end("end");
 static ustring op_eq("eq");
@@ -86,7 +85,6 @@ static ustring op_point("point");
 static ustring op_printf("printf");
 static ustring op_shl("shl");
 static ustring op_shr("shr");
-static ustring op_sin("sin");
 static ustring op_sqrt("sqrt");
 static ustring op_vector("vector");
 static ustring op_while("while");
@@ -1216,10 +1214,6 @@ LLVMGEN (llvm_gen_unary_op)
             }
         } else if (opname == op_sqrt && src_float) {
             result = rop.builder().CreateCall(llvm::Intrinsic::getDeclaration(rop.llvm_module(), llvm::Intrinsic::sqrt, &float_ty, 1), src_val);
-        } else if (opname == op_sin && src_float) {
-            result = rop.builder().CreateCall(llvm::Intrinsic::getDeclaration(rop.llvm_module(), llvm::Intrinsic::sin, &float_ty, 1), src_val);
-        } else if (opname == op_cos && src_float) {
-            result = rop.builder().CreateCall(llvm::Intrinsic::getDeclaration(rop.llvm_module(), llvm::Intrinsic::cos, &float_ty, 1), src_val);
         } else {
             // Don't know how to handle this.
             rop.shadingsys().error ("Don't know how to handle op '%s', eliding the store\n", opname.c_str());
@@ -1940,8 +1934,13 @@ initialize_llvm_generator_table ()
     INIT2 (abs, llvm_gen_unary_op);
     INIT2 (fabs, llvm_gen_unary_op);
     INIT2 (sqrt, llvm_gen_unary_op);
-    INIT2 (sin, llvm_gen_unary_op);
-    INIT2 (cos, llvm_gen_unary_op);
+    INIT2 (sin, llvm_gen_generic);
+    INIT2 (cos, llvm_gen_generic);
+    INIT2 (tan, llvm_gen_generic);
+    INIT2 (asin, llvm_gen_generic);
+    INIT2 (acos, llvm_gen_generic);
+    INIT2 (atan, llvm_gen_generic);
+    INIT2 (atan2, llvm_gen_generic);
     INIT2 (point, llvm_gen_construct_triple);
     INIT2 (vector, llvm_gen_construct_triple);
     INIT2 (normal, llvm_gen_construct_triple);
