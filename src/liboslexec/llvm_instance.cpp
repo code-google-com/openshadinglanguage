@@ -2050,9 +2050,9 @@ initialize_llvm_generator_table ()
     INIT (if);
     // INIT (inversesqrt);
     // INIT (iscameraray);
-    // INIT (isfinite);
-    // INIT (isinf);
-    // INIT (isnan);
+    INIT2 (isfinite, llvm_gen_generic);
+    INIT2 (isinf, llvm_gen_generic);
+    INIT2 (isnan, llvm_gen_generic);
     // INIT (isshadowray);
     INIT2 (le, llvm_gen_compare_op);
     INIT2 (length, llvm_gen_generic);

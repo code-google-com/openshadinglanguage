@@ -362,6 +362,11 @@ extern "C" void osl_pow_dvdvf (void *r_, void *a_, float b_)
 
 
 
+extern "C" int osl_isnan_if (float f) { return std::isnan (f); }
+extern "C" int osl_isinf_if (float f) { return std::isinf (f); }
+extern "C" int osl_isfinite_if (float f) { return std::isfinite (f); }
+
+
 
 // Closure functions
 
