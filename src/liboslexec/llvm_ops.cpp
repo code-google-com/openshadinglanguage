@@ -49,11 +49,21 @@ using namespace OSL::pvt;
 
 
 
-extern "C" void
-osl_printf (const char* format_str, ...)
+extern "C" const char *
+osl_format (const char* format_str, ...)
 {
-    // FIXME -- no, no, we need to take a ShadingSys ref and go through
-    // the preferred output mechanisms.
+    va_list args;
+    va_start (args, format_str);
+    std::string s = Strutil::vformat (format_str, args);
+    va_end (args);
+    return ustring(s).c_str();
+}
+
+
+extern "C" void
+osl_printf (void *sg_, const char* format_str, ...)
+{
+    SingleShaderGlobal *sg = (SingleShaderGlobal *)sg_;
     va_list args;
     va_start (args, format_str);
 #if 0
@@ -61,9 +71,35 @@ osl_printf (const char* format_str, ...)
     std::string newfmt = std::string("llvm: ") + format_str;
     format_str = newfmt.c_str();
 #endif
-    vprintf (format_str, args);
+    std::string s = Strutil::vformat (format_str, args);
     va_end (args);
+    sg->context->shadingsys().message (s);
 }
+
+
+extern "C" void
+osl_error (void *sg_, const char* format_str, ...)
+{
+    SingleShaderGlobal *sg = (SingleShaderGlobal *)sg_;
+    va_list args;
+    va_start (args, format_str);
+    std::string s = Strutil::vformat (format_str, args);
+    va_end (args);
+    sg->context->shadingsys().error (s);
+}
+
+
+extern "C" void
+osl_warning (void *sg_, const char* format_str, ...)
+{
+    SingleShaderGlobal *sg = (SingleShaderGlobal *)sg_;
+    va_list args;
+    va_start (args, format_str);
+    std::string s = Strutil::vformat (format_str, args);
+    va_end (args);
+    sg->context->shadingsys().warning (s);
+}
+
 
 
 #define MAKE_UNARY_PERCOMPONENT_OP(name,floatfunc,dualfunc)         \
@@ -665,25 +701,25 @@ osl_normalize_dvdv (void *result, void *a)
 
 // Only define 2-arg version of concat, sort it out upstream
 extern "C" const char *
-osl_concat (const char *s, const char *t)
+osl_concat_sss (const char *s, const char *t)
 {
     return ustring::format("%s%s", s, t).c_str();
 }
 
 extern "C" int
-osl_strlen (const char *s)
+osl_strlen_is (const char *s)
 {
     return (int) USTR(s).length();
 }
 
 extern "C" int
-osl_startswith (const char *s, const char *substr)
+osl_startswith_iss (const char *s, const char *substr)
 {
     return strncmp (s, substr, USTR(substr).length()) == 0;
 }
 
 extern "C" int
-osl_endswith (const char *s, const char *substr)
+osl_endswith_iss (const char *s, const char *substr)
 {
     size_t len = USTR(substr).length();
     if (len > USTR(s).length())
@@ -693,7 +729,7 @@ osl_endswith (const char *s, const char *substr)
 }
 
 extern "C" const char *
-osl_substr (const char *s, int start, int length)
+osl_substr_ssii (const char *s, int start, int length)
 {
     int slen = (int) USTR(s).length();
     int b = start;

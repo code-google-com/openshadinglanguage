@@ -61,8 +61,10 @@ static ustring op_compl("compl");
 static ustring op_dowhile("dowhile");
 static ustring op_end("end");
 static ustring op_eq("eq");
+static ustring op_error("error");
 static ustring op_fabs("fabs");
 static ustring op_for("for");
+static ustring op_format("format");
 static ustring op_ge("ge");
 static ustring op_gt("gt");
 static ustring op_if("if");
@@ -79,6 +81,7 @@ static ustring op_shl("shl");
 static ustring op_shr("shr");
 static ustring op_sqrt("sqrt");
 static ustring op_vector("vector");
+static ustring op_warning("warning");
 static ustring op_while("while");
 static ustring op_xor("xor");
 
@@ -105,7 +108,6 @@ typedef bool (*OpLLVMGen) (LLVMGEN_ARGS);
 static const char *llvm_helper_function_table[] = {
     "fabsf", "ff",
 
-    "osl_printf", "xs*",
     "osl_closure_clear", "xC",
     "osl_closure_assign", "xCC",
     "osl_add_closure_closure", "xCCC",
@@ -284,6 +286,8 @@ RuntimeOptimizer::llvm_pass_type (const TypeSpec &typespec)
         lt = llvm_type_matrix_ptr();
     else if (t == TypeDesc::NONE)
         lt = llvm_type_void();
+    else if (t == TypeDesc::PTR)
+        lt = llvm_type_void_ptr();
     else {
         std::cerr << "Bad llvm_pass_type(" << typespec.c_str() << ")\n";
         ASSERT (0 && "not handling this type yet");
@@ -653,26 +657,39 @@ RuntimeOptimizer::llvm_call_function (const char *name, const Symbol &A,
 
 
 
+// Used for printf, error, warning, format
 LLVMGEN (llvm_gen_printf)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
 
     // Prepare the args for the call
-    llvm::SmallVector<llvm::Value*, 16> call_args;
-    Symbol& format_sym = *rop.opargsym (op, 0);
+    
+    // Which argument is the format string?  Usually 0, but for op
+    // format(), the formatting string is argument #1.
+    int format_arg = (op.opname() == "format" ? 1 : 0);
+    Symbol& format_sym = *rop.opargsym (op, format_arg);
+
+    std::vector<llvm::Value*> call_args;
     if (!format_sym.is_constant()) {
-        rop.shadingsys().warning ("printf must currently have constant format\n");
+        rop.shadingsys().warning ("%s must currently have constant format\n",
+                                  op.opname().c_str());
         return false;
     }
 
+    // For some ops, we push the shader globals pointer
+    if (op.opname() == op_printf || op.opname() == op_error ||
+            op.opname() == op_warning)
+        call_args.push_back (rop.sg_void_ptr());
+
     // We're going to need to adjust the format string as we go, but I'd
     // like to reserve a spot for the char*.
+    size_t new_format_slot = call_args.size();
     call_args.push_back(NULL);
 
     ustring format_ustring = *((ustring*)format_sym.data());
     const char* format = format_ustring.c_str();
     std::string s;
-    int arg = 0;
+    int arg = format_arg + 1;
     while (*format != '\0') {
         if (*format == '%') {
             if (format[1] == '%') {
@@ -697,9 +714,9 @@ LLVMGEN (llvm_gen_printf)
 
             std::string ourformat (oldfmt, format);  // straddle the format
             // Doctor it to fix mismatches between format and data
-            Symbol& sym (*rop.opargsym (op, 1 + arg));
+            Symbol& sym (*rop.opargsym (op, arg));
             if (SkipSymbol(sym)) {
-                rop.shadingsys().warning ("symbol type for '%s' unsupported for printf\n", sym.mangled().c_str());
+                rop.shadingsys().warning ("symbol type for '%s' unsupported for %s\n", sym.mangled().c_str(), op.opname().c_str());
                 return false;
             }
             TypeDesc simpletype (sym.typespec().simpletype());
@@ -735,13 +752,25 @@ LLVMGEN (llvm_gen_printf)
         }
     }
 
+    // Some ops prepend things
+    if (op.opname() == op_error || op.opname() == op_warning) {
+        std::string prefix = Strutil::format ("Shader %s [%s]: ",
+                                              op.opname().c_str(),
+                                              rop.inst()->shadername().c_str());
+        s = prefix + s;
+    }
 
-    //shadingsys().info ("llvm printf. Original string = '%s', new string = '%s'",
-    //     format_ustring.c_str(), s.c_str());
+    // Now go back and put the new format string in its place
+    call_args[new_format_slot] = rop.llvm_constant (s.c_str());
 
-    call_args[0] = rop.llvm_constant (s.c_str());
+    // Construct the function name and call it.
+    std::string opname = std::string("osl_") + op.opname().string();
+    llvm::Value *ret = rop.llvm_call_function (opname.c_str(), &call_args[0],
+                                               (int)call_args.size());
 
-    rop.llvm_call_function ("osl_printf", &call_args[0], (int)call_args.size());
+    // The format op returns a string value, put in in the right spot
+    if (op.opname() == op_format)
+        rop.llvm_store_value (ret, *rop.opargsym (op, 0));
     return true;
 }
 
@@ -1918,7 +1947,7 @@ initialize_llvm_generator_table ()
     INIT (compassign);
     INIT2 (compl, llvm_gen_unary_op);
     INIT (compref);
-    // INIT (concat);
+    INIT2 (concat, llvm_gen_generic);
     INIT2 (cos, llvm_gen_generic);
     INIT2 (cosh, llvm_gen_generic);
     INIT2 (cross, llvm_gen_generic);
@@ -1934,11 +1963,11 @@ initialize_llvm_generator_table ()
     INIT2 (dowhile, llvm_gen_loop_op);
     // INIT (emission);
     // INIT (end);
-    // INIT (endswith);
+    INIT2 (endswith, llvm_gen_generic);
     INIT2 (eq, llvm_gen_compare_op);
     INIT2 (erf, llvm_gen_generic);
     INIT2 (erfc, llvm_gen_generic);
-    // INIT (error);
+    INIT2 (error, llvm_gen_printf);
     INIT2 (exp, llvm_gen_generic);
     INIT2 (exp2, llvm_gen_generic);
     INIT2 (expm1, llvm_gen_generic);
@@ -1950,7 +1979,7 @@ initialize_llvm_generator_table ()
     // INIT (floor);
     // INIT (fmod);
     INIT2 (for, llvm_gen_loop_op);
-    // INIT (format);
+    INIT2 (format, llvm_gen_printf);
     // INIT (fresnel);
     INIT2 (ge, llvm_gen_compare_op);
     // INIT (getattribute);
@@ -2020,11 +2049,11 @@ initialize_llvm_generator_table ()
     // INIT (snoise);
     // INIT (spline);
     INIT2 (sqrt, llvm_gen_unary_op);
-    // INIT (startswith);
+    INIT2 (startswith, llvm_gen_generic);
     // INIT (step);
-    // INIT (strlen);
+    INIT2 (strlen, llvm_gen_generic);
     INIT (sub);
-    // INIT (substr);
+    INIT2 (substr, llvm_gen_generic);
     // INIT (subsurface);
     // INIT (surfacearea);
     INIT2 (tan, llvm_gen_generic);
@@ -2040,7 +2069,7 @@ initialize_llvm_generator_table ()
     // INIT (useparam);
     INIT2 (vector, llvm_gen_construct_triple);
     // INIT (ward);
-    // INIT (warning);
+    INIT2 (warning, llvm_gen_printf);
     // INIT (westin_backscatter);
     // INIT (westin_sheen);
     INIT2 (while, llvm_gen_loop_op);

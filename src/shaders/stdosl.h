@@ -100,6 +100,19 @@ point  log (point a, vector b)  { return log(a)/log(b); }
 vector log (vector a, vector b) { return log(a)/log(b); }
 color  log (color a, color b)   { return log(a)/log(b); }
 
+// Define concat in terms of shorter concat
+string concat (string a, string b, string c) {
+    return concat(concat(a,b), c);
+}
+string concat (string a, string b, string c, string d) {
+    return concat(concat(a,b,c), d);
+}
+string concat (string a, string b, string c, string d, string e) {
+    return concat(concat(a,b,c,d), e);
+}
+string concat (string a, string b, string c, string d, string e, string f) {
+    return concat(concat(a,b,c,d,e), f);
+}
 
 
 closure color cloth(normal N, float s, float t, color diff_warp, color diff_weft, 

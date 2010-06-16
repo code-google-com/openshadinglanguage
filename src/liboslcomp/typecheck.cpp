@@ -1041,7 +1041,7 @@ static const char * builtin_func_args [] = {
     "ceil", ANY_ONE_FLOAT_BASED, NULL,
     "cellnoise", NOISE_ARGS, NULL,
     "clamp", "ffff", "cccc", "pppp", "vvvv", "nnnn", NULL,
-    "concat", "ss.", NULL,   // FIXME -- further checking
+    "concat", "sss", /*"ss.",*/ NULL,   // FIXME -- further checking
     "cos", ANY_ONE_FLOAT_BASED, NULL,
     "cosh", ANY_ONE_FLOAT_BASED, NULL,
     "cross", "vvv", NULL,
@@ -1232,6 +1232,7 @@ OSLCompilerImpl::type_from_code (const char *code, int *advance)
     case 'm' : t = TypeDesc::TypeMatrix;       break;
     case 's' : t = TypeDesc::TypeString;       break;
     case 'x' : t = TypeDesc (TypeDesc::NONE);  break;
+    case 'X' : t = TypeDesc (TypeDesc::PTR);   break;
     case 'C' : // color closure
         t = TypeSpec (TypeDesc::TypeColor, true);
         break;
