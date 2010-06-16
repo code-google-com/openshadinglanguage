@@ -211,6 +211,9 @@ MAKE_UNARY_PERCOMPONENT_OP (asin, safe_asinf, asin)
 MAKE_UNARY_PERCOMPONENT_OP (acos, safe_acosf, acos)
 MAKE_UNARY_PERCOMPONENT_OP (atan, std::atan, atan)
 MAKE_BINARY_PERCOMPONENT_OP (atan2, std::atan2, atan2)
+MAKE_UNARY_PERCOMPONENT_OP (sinh, std::sinh, sinh)
+MAKE_UNARY_PERCOMPONENT_OP (cosh, std::cosh, cosh)
+MAKE_UNARY_PERCOMPONENT_OP (tanh, std::tanh, tanh)
 
 
 

@@ -1941,6 +1941,9 @@ initialize_llvm_generator_table ()
     INIT2 (acos, llvm_gen_generic);
     INIT2 (atan, llvm_gen_generic);
     INIT2 (atan2, llvm_gen_generic);
+    INIT2 (sinh, llvm_gen_generic);
+    INIT2 (cosh, llvm_gen_generic);
+    INIT2 (tanh, llvm_gen_generic);
     INIT2 (point, llvm_gen_construct_triple);
     INIT2 (vector, llvm_gen_construct_triple);
     INIT2 (normal, llvm_gen_construct_triple);
