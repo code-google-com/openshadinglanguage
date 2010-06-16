@@ -211,7 +211,7 @@ osl_get_from_to_matrix (void *sg, void *r, const char *from, const char *to)
 }
 
 extern "C" void
-osl_transpose (void *r, void *m)
+osl_transpose_mm (void *r, void *m)
 {
     MAT(r) = MAT(m).transposed();
 }
@@ -251,7 +251,7 @@ inline F det4x4(const Imath::Matrix44<F> &m)
 }
 
 extern "C" float
-osl_determinant (void *m)
+osl_determinant_fm (void *m)
 {
     return det4x4 (MAT(m));
 }
@@ -287,74 +287,74 @@ osl_prepend_normal_from (void *sg, void *v, const char *from)
 
 
 extern "C" float
-osl_dot (void *a, void *b)
+osl_dot_fvv (void *a, void *b)
 {
     return VEC(a).dot (VEC(b));
 }
 
 extern "C" void
-osl_dot_deriv_deriv (void *result, void *a, void *b)
+osl_dot_dfdvdv (void *result, void *a, void *b)
 {
     DFLOAT(result) = dot (DVEC(a), DVEC(b));
 }
 
 extern "C" void
-osl_dot_deriv_noderiv (void *result, void *a, void *b_)
+osl_dot_dfdvv (void *result, void *a, void *b_)
 {
     Dual2<Vec3> b (VEC(b_));
-    osl_dot_deriv_deriv (result, a, &b);
+    osl_dot_dfdvdv (result, a, &b);
 }
 
 extern "C" void
-osl_dot_noderiv_deriv (void *result, void *a_, void *b)
+osl_dot_dfvdv (void *result, void *a_, void *b)
 {
     Dual2<Vec3> a (VEC(a_));
-    osl_dot_deriv_deriv (result, &a, b);
+    osl_dot_dfdvdv (result, &a, b);
 }
 
 
 extern "C" void
-osl_cross (void *result, void *a, void *b)
+osl_cross_vvv (void *result, void *a, void *b)
 {
     VEC(result) = VEC(a).cross (VEC(b));
 }
 
 extern "C" void
-osl_cross_deriv_deriv (void *result, void *a, void *b)
+osl_cross_dvdvdv (void *result, void *a, void *b)
 {
     DVEC(result) = cross (DVEC(a), DVEC(b));
 }
 
 extern "C" void
-osl_cross_deriv_noderiv (void *result, void *a, void *b_)
+osl_cross_dvdvv (void *result, void *a, void *b_)
 {
     Dual2<Vec3> b (VEC(b_));
-    osl_cross_deriv_deriv (result, a, &b);
+    osl_cross_dvdvdv (result, a, &b);
 }
 
 extern "C" void
-osl_cross_noderiv_deriv (void *result, void *a_, void *b)
+osl_cross_dvvdv (void *result, void *a_, void *b)
 {
     Dual2<Vec3> a (VEC(a_));
-    osl_cross_deriv_deriv (result, &a, b);
+    osl_cross_dvdvdv (result, &a, b);
 }
 
 
 extern "C" float
-osl_length (void *a)
+osl_length_fv (void *a)
 {
     return VEC(a).length();
 }
 
 extern "C" void
-osl_length_deriv (void *result, void *a)
+osl_length_dfdv (void *result, void *a)
 {
     DVEC(result) = length(DVEC(a));
 }
 
 
 extern "C" float
-osl_distance (void *a_, void *b_)
+osl_distance_fvv (void *a_, void *b_)
 {
     const Vec3 &a (VEC(a_));
     const Vec3 &b (VEC(b_));
@@ -365,32 +365,32 @@ osl_distance (void *a_, void *b_)
 }
 
 extern "C" void
-osl_distance_deriv_deriv (void *result, void *a, void *b)
+osl_distance_dfdvdv (void *result, void *a, void *b)
 {
     DVEC(result) = distance (DVEC(a), DVEC(b));
 }
 
 extern "C" void
-osl_distance_deriv_noderiv (void *result, void *a, void *b)
+osl_distance_dfdvv (void *result, void *a, void *b)
 {
     DVEC(result) = distance (DVEC(a), VEC(b));
 }
 
 extern "C" void
-osl_distance_noderiv_deriv (void *result, void *a, void *b)
+osl_distance_dfvdv (void *result, void *a, void *b)
 {
     DVEC(result) = distance (VEC(a), DVEC(b));
 }
 
 
 extern "C" void
-osl_normalize (void *result, void *a)
+osl_normalize_vv (void *result, void *a)
 {
     VEC(result) = VEC(a).normalized();
 }
 
 extern "C" void
-osl_normalize_deriv (void *result, void *a)
+osl_normalize_dvdv (void *result, void *a)
 {
     DVEC(result) = normalize(DVEC(a));
 }

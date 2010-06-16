@@ -1718,156 +1718,63 @@ LLVMGEN (llvm_gen_unary_reduction)
 
 
 
-// dot product
-LLVMGEN (llvm_gen_dot)
+// Generic llvm code generation.  Assumes:
+//   1. All polymorphic and derivative cases implemented as functions in
+//      llvm_ops.cpp -- no custom IR is needed.
+//   2. Naming conention is: osl_NAME_{args}, where args is the
+//      concatenation of type codes for all args including return value --
+//      f/i/v/m/s for float/int/triple/matrix/string, and df/dv/dm for
+//      duals.
+//   3. The function returns scalars as an actual return value (that
+//      must be stored), but "returns" aggregates or duals in the first
+//      argument.
+//   4. Duals and aggregates are passed as void*'s, float/int/string 
+//      passed by value.
+//   5. Note that this only works if triples are all treated identically,
+//      this routine can't be used if it must be polymorphic based on
+//      color, point, vector, normal differences.
+//
+LLVMGEN (llvm_gen_generic)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& Result  = *rop.opargsym (op, 0);
-    Symbol& A = *rop.opargsym (op, 1);
-    Symbol& B = *rop.opargsym (op, 2);
+    std::vector<const Symbol *> args;
+    bool any_deriv_args = false;
+    std::string name = std::string("osl_") + op.opname().string() + "_";
+    for (int i = 0;  i < op.nargs();  ++i) {
+        Symbol *s (rop.opargsym (op, i));
+        args.push_back (s);
+        any_deriv_args |= (i > 0 && s->has_derivs());
+        if (Result.has_derivs() && s->has_derivs())
+            name += "d";
+        if (s->typespec().is_float())
+            name += "f";
+        else if (s->typespec().is_triple())
+            name += "v";
+        else if (s->typespec().is_matrix())
+            name += "m";
+        else if (s->typespec().is_string())
+            name += "s";
+        else if (s->typespec().is_int())
+            name += "i";
+        else ASSERT (0);
+    }
 
-    if (! Result.has_derivs() || (!A.has_derivs() && !B.has_derivs())) {
-        llvm::Value *r = rop.llvm_call_function ("osl_dot", A, B);
-        rop.llvm_store_value (r, Result);
-        rop.llvm_zero_derivs (Result);
-    } else {
-        // Cases with derivs
-        ASSERT (Result.has_derivs());
-        if (A.has_derivs() && B.has_derivs()) {
-            rop.llvm_call_function("osl_dot_deriv_deriv", Result, A, B, true);
-        } else if (A.has_derivs()) {
-            ASSERT (! B.has_derivs());
-            rop.llvm_call_function("osl_dot_deriv_noderiv", Result, A, B, true);
+    if (! Result.has_derivs() || ! any_deriv_args) {
+        // Don't compute derivs -- either not needed or not provided in args
+        if (Result.typespec().aggregate() == TypeDesc::SCALAR) {
+            llvm::Value *r = rop.llvm_call_function (name.c_str(),
+                                                     &(args[1]), op.nargs()-1);
+            rop.llvm_store_value (r, Result);
         } else {
-            ASSERT (B.has_derivs());
-            rop.llvm_call_function("osl_dot_noderiv_deriv", Result, A, B, true);
+            rop.llvm_call_function (name.c_str(), &(args[0]), op.nargs());
         }
-    }
-    return true;
-}
-
-
-
-// cross product
-LLVMGEN (llvm_gen_cross)
-{
-    Opcode &op (rop.inst()->ops()[opnum]);
-    Symbol& Result  = *rop.opargsym (op, 0);
-    Symbol& A = *rop.opargsym (op, 1);
-    Symbol& B = *rop.opargsym (op, 2);
-
-    if (! Result.has_derivs() || (!A.has_derivs() && !B.has_derivs())) {
-        rop.llvm_call_function ("osl_cross", Result, A, B);
         rop.llvm_zero_derivs (Result);
     } else {
         // Cases with derivs
-        ASSERT (Result.has_derivs());
-        if (A.has_derivs() && B.has_derivs()) {
-            rop.llvm_call_function("osl_cross_deriv_deriv", Result, A, B, true);
-        } else if (A.has_derivs()) {
-            ASSERT (! B.has_derivs());
-            rop.llvm_call_function("osl_cross_deriv_noderiv", Result, A, B, true);
-        } else {
-            ASSERT (B.has_derivs());
-            rop.llvm_call_function("osl_cross_noderiv_deriv", Result, A, B, true);
-        }
+        ASSERT (Result.has_derivs() && any_deriv_args);
+        rop.llvm_call_function (name.c_str(), &(args[0]), op.nargs(), true);
     }
-    return true;
-}
-
-
-
-// length
-LLVMGEN (llvm_gen_length)
-{
-    Opcode &op (rop.inst()->ops()[opnum]);
-    Symbol& Result  = *rop.opargsym (op, 0);
-    Symbol& A = *rop.opargsym (op, 1);
-
-    if (! Result.has_derivs() || !A.has_derivs()) {
-        llvm::Value *r = rop.llvm_call_function ("osl_length", A);
-        rop.llvm_store_value (r, Result);
-        rop.llvm_zero_derivs (Result);
-    } else {
-        // Cases with derivs
-        ASSERT (Result.has_derivs() && A.has_derivs());
-        rop.llvm_call_function("osl_length_deriv", Result, A, true);
-    }
-    return true;
-}
-
-
-
-// distance
-LLVMGEN (llvm_gen_distance)
-{
-    Opcode &op (rop.inst()->ops()[opnum]);
-    Symbol& Result  = *rop.opargsym (op, 0);
-    Symbol& A = *rop.opargsym (op, 1);
-    Symbol& B = *rop.opargsym (op, 2);
-
-    if (! Result.has_derivs() || (!A.has_derivs() && !B.has_derivs())) {
-        llvm::Value *val = rop.llvm_call_function ("osl_distance", A, B);
-        rop.llvm_store_value (val, Result);
-        rop.llvm_zero_derivs (Result);
-    } else {
-        // Cases with derivs
-        ASSERT (Result.has_derivs());
-        if (A.has_derivs() && B.has_derivs()) {
-            rop.llvm_call_function("osl_distance_deriv_deriv", Result, A, B, true);
-        } else if (A.has_derivs()) {
-            ASSERT (! B.has_derivs());
-            rop.llvm_call_function("osl_distance_deriv_noderiv", Result, A, B, true);
-        } else {
-            ASSERT (B.has_derivs());
-            rop.llvm_call_function("osl_distance_noderiv_deriv", Result, A, B, true);
-        }
-    }
-    return true;
-}
-
-
-
-LLVMGEN (llvm_gen_normalize)
-{
-    Opcode &op (rop.inst()->ops()[opnum]);
-    Symbol& Result  = *rop.opargsym (op, 0);
-    Symbol& A = *rop.opargsym (op, 1);
-
-    if (! Result.has_derivs() || !A.has_derivs()) {
-        rop.llvm_call_function ("osl_normalize", Result, A);
-        rop.llvm_zero_derivs (Result);
-    } else {
-        // Cases with derivs
-        ASSERT (Result.has_derivs() && A.has_derivs());
-        rop.llvm_call_function("osl_normalize_deriv", Result, A, true);
-    }
-    return true;
-}
-
-
-
-// Matrix determinant
-LLVMGEN (llvm_gen_determinant)
-{
-    Opcode &op (rop.inst()->ops()[opnum]);
-    Symbol& Result = *rop.opargsym (op, 0);
-    Symbol& A = *rop.opargsym (op, 1);
-    llvm::Value *r = rop.llvm_call_function ("osl_determinant", A);
-    rop.llvm_store_value (r, Result);
-    rop.llvm_zero_derivs (Result);
-    return true;
-}
-
-
-
-// Matrix transpose
-LLVMGEN (llvm_gen_transpose)
-{
-    Opcode &op (rop.inst()->ops()[opnum]);
-    Symbol& Result = *rop.opargsym (op, 0);
-    Symbol& A = *rop.opargsym (op, 1);
-    rop.llvm_call_function ("osl_transpose", Result, A);
     return true;
 }
 
@@ -2011,17 +1918,17 @@ initialize_llvm_generator_table ()
     INIT2 (xor, llvm_gen_bitwise_binary_op);
     INIT2 (shl, llvm_gen_bitwise_binary_op);
     INIT2 (shr, llvm_gen_bitwise_binary_op);
-    INIT (dot);
-    INIT (cross);
-    INIT (distance);
-    INIT (length);
-    INIT (normalize);
+    INIT2 (dot, llvm_gen_generic);
+    INIT2 (cross, llvm_gen_generic);
+    INIT2 (distance, llvm_gen_generic);
+    INIT2 (length, llvm_gen_generic);
+    INIT2 (normalize, llvm_gen_generic);
     INIT (compassign);
     INIT (compref);
     INIT (mxcompassign);
     INIT (mxcompref);
-    INIT (determinant);
-    INIT (transpose);
+    INIT2 (determinant, llvm_gen_generic);
+    INIT2 (transpose, llvm_gen_generic);
     INIT2 (eq, llvm_gen_compare_op);
     INIT2 (neq, llvm_gen_compare_op);
     INIT2 (lt, llvm_gen_compare_op);
