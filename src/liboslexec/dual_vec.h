@@ -82,11 +82,19 @@ make_Color3 (float x, float y, float z)
 }
 
 inline Dual2<Color3>
-make_Color3 (Dual2<float> &x, Dual2<float> &y, Dual2<float> &z)
+make_Color3 (const Dual2<float> &x, const Dual2<float> &y, const Dual2<float> &z)
 {
     return Dual2<Color3> (Color3 (x.val(), y.val(), z.val()),
                           Color3 (x.dx(), y.dx(), z.dx()),
                           Color3 (x.dy(), y.dy(), z.dy()));
+}
+
+inline Dual2<Color3>
+make_Vec3 (const Dual2<float> &x, const Dual2<float> &y, const Dual2<float> &z)
+{
+    return Dual2<Vec3> (Vec3 (x.val(), y.val(), z.val()),
+                        Vec3 (x.dx(), y.dx(), z.dx()),
+                        Vec3 (x.dy(), y.dy(), z.dy()));
 }
 
 

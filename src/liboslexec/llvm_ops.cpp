@@ -215,6 +215,116 @@ MAKE_UNARY_PERCOMPONENT_OP (sinh, std::sinh, sinh)
 MAKE_UNARY_PERCOMPONENT_OP (cosh, std::cosh, cosh)
 MAKE_UNARY_PERCOMPONENT_OP (tanh, std::tanh, tanh)
 
+inline float safe_log (float f) {
+    if (f <= 0.0f)
+        return -std::numeric_limits<float>::max();
+    else
+        return std::log (f);
+}
+
+inline float safe_log2(float x) {
+    if (x <= 0.0f)
+        return -std::numeric_limits<float>::max();
+    else
+        return log2f(x);
+}
+
+inline float safe_log10(float x) {
+    if (x <= 0.0f)
+        return -std::numeric_limits<float>::max();
+    else
+        return log10f(x);
+}
+
+inline float safe_logb (float f) {
+    if (f == 0.0f) {
+        // m_exec->error ("attempted to compute logb(%g)", f);
+        return -std::numeric_limits<float>::max();
+    } else {
+        return logbf (f);
+    }
+}
+
+inline Dual2<float> logb (const Dual2<float> &f) {
+    // FIXME - punt on derivs
+    return Dual2<float> (safe_logb(f.val()), 0.0, 0.0);
+}
+
+
+MAKE_UNARY_PERCOMPONENT_OP (log, safe_log, log)
+MAKE_UNARY_PERCOMPONENT_OP (log2, safe_log2, log2)
+MAKE_UNARY_PERCOMPONENT_OP (log10, safe_log10, log10)
+MAKE_UNARY_PERCOMPONENT_OP (logb, safe_logb, logb)
+MAKE_UNARY_PERCOMPONENT_OP (exp, std::exp, exp)
+MAKE_UNARY_PERCOMPONENT_OP (exp2, exp2f, exp2)
+MAKE_UNARY_PERCOMPONENT_OP (expm1, expm1f, expm1)
+MAKE_BINARY_PERCOMPONENT_OP (pow, safe_pow, pow)
+MAKE_UNARY_PERCOMPONENT_OP (erf, erff, erf)
+MAKE_UNARY_PERCOMPONENT_OP (erfc, erfcf, erfc)
+
+// Mixed vec pow(vec,float)
+extern "C" void osl_pow_vvf (void *r_, void *a_, float b) {
+    Vec3 &r (VEC(r_));
+    Vec3 &a (VEC(a_));
+    r[0] = safe_pow (a[0], b);
+    r[1] = safe_pow (a[1], b);
+    r[2] = safe_pow (a[2], b);
+}
+
+extern "C" void osl_pow_dvdvdf (void *r_, void *a_, void *b_)
+{
+    Dual2<Vec3> &r (DVEC(r_));
+    Dual2<Vec3> &a (DVEC(a_));
+    Dual2<float> &b (DFLOAT(b_));
+    Dual2<float> ax, ay, az;
+    ax = pow (Dual2<float> (a.val().x, a.dx().x, a.dy().x),
+                   Dual2<float> (b.val(), b.dx(), b.dy()));
+    ay = pow (Dual2<float> (a.val().y, a.dx().y, a.dy().y),
+                   Dual2<float> (b.val(), b.dx(), b.dy()));
+    az = pow (Dual2<float> (a.val().z, a.dx().z, a.dy().z),
+                   Dual2<float> (b.val(), b.dx(), b.dy()));
+    /* Now swizzle back */
+    r.set (Vec3( ax.val(), ay.val(), az.val()),
+           Vec3( ax.dx(),  ay.dx(),  az.dx() ),
+           Vec3( ax.dy(),  ay.dy(),  az.dy() ));
+}
+
+extern "C" void osl_pow_dvvdf (void *r_, void *a_, void *b_)
+{
+    Dual2<Vec3> &r (DVEC(r_));
+    Vec3 &a (VEC(a_));
+    Dual2<float> &b (DFLOAT(b_));
+    /* Swizzle the Dual2<Vec3>'s into 3 Dual2<float>'s */
+    Dual2<float> ax, ay, az;
+    ax = pow (Dual2<float> (a.x),
+                   Dual2<float> (b.val(), b.dx(), b.dy()));
+    ay = pow (Dual2<float> (a.y),
+                   Dual2<float> (b.val(), b.dx(), b.dy()));
+    az = pow (Dual2<float> (a.z),
+                   Dual2<float> (b.val(), b.dx(), b.dy()));
+    /* Now swizzle back */
+    r.set (Vec3( ax.val(), ay.val(), az.val()),
+           Vec3( ax.dx(),  ay.dx(),  az.dx() ),
+           Vec3( ax.dy(),  ay.dy(),  az.dy() ));
+}
+
+extern "C" void osl_pow_dvdvf (void *r_, void *a_, float b_)
+{
+    Dual2<Vec3> &r (DVEC(r_));
+    Dual2<Vec3> &a (DVEC(a_));
+    Dual2<float> b (b_);
+    /* Swizzle the Dual2<Vec3>'s into 3 Dual2<float>'s */
+    Dual2<float> ax, ay, az;
+    ax = pow (Dual2<float> (a.val().x, a.dx().x, a.dy().x), b);
+    ay = pow (Dual2<float> (a.val().y, a.dx().y, a.dy().y), b);
+    az = pow (Dual2<float> (a.val().z, a.dx().z, a.dy().z), b);
+    /* Now swizzle back */
+    r.set (Vec3( ax.val(), ay.val(), az.val()),
+           Vec3( ax.dx(),  ay.dx(),  az.dx() ),
+           Vec3( ax.dy(),  ay.dy(),  az.dy() ));
+}
+
+
 
 
 // Closure functions
