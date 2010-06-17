@@ -100,6 +100,44 @@ vector log (vector a, float b) { return log(a)/log(b); }
 color  log (color a,  float b) { return log(a)/log(b); }
 float  log (float a,  float b) { return log(a)/log(b); }
 
+// Define hypot in terms of mul and sqrt
+float hypot (float a, float b) { return sqrt (a*a + b*b); }
+float hypot (float a, float b, float c) { return sqrt (a*a + b*b + c*c); }
+
+// Mix
+color  mix (color  x, color  y, color  a) { return x*(1-a) + y*a; }
+color  mix (color  x, color  y, float  a) { return x*(1-a) + y*a; }
+normal mix (normal x, normal y, normal a) { return x*(1-a) + y*a; }
+normal mix (normal x, normal y, float  a) { return x*(1-a) + y*a; }
+vector mix (vector x, vector y, vector a) { return x*(1-a) + y*a; }
+vector mix (vector x, vector y, float  a) { return x*(1-a) + y*a; }
+point  mix (point  x, point  y, point  a) { return x*(1-a) + y*a; }
+point  mix (point  x, point  y, float  a) { return x*(1-a) + y*a; }
+float  mix (float  x, float  y, float  a) { return x*(1-a) + y*a; }
+
+// Clamp
+color clamp (color x, color a, color b) { return min(max(x,a),b); }
+normal clamp (normal x, normal a, normal b) { return min(max(x,a),b); }
+vector clamp (vector x, vector a, vector b) { return min(max(x,a),b); }
+color clamp (color x, color a, color b) { return min(max(x,a),b); }
+color clamp (color x, color a, color b) { return min(max(x,a),b); }
+
+#if 0
+// Smoothstep
+float smoothstep (float a, float b, float x) {
+    float hermite (float a, float b, float x) {
+        float t = (a==b) ? a : (x-a)/(b-a);
+        return (3-2*t)*(t*t);
+    }
+    return (x < a) ? a : ( (x > b) ? b : hermite(a,b,x) );
+}
+#endif
+
+// Step
+float step (float edge, float x) {
+    return (x>=edge);
+}
+
 // Define concat in terms of shorter concat
 string concat (string a, string b, string c) {
     return concat(concat(a,b), c);

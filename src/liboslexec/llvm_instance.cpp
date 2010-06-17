@@ -71,6 +71,7 @@ static ustring op_if("if");
 static ustring op_le("le");
 static ustring op_lt("lt");
 static ustring op_luminance("luminance");
+static ustring op_min("min");
 static ustring op_neq("neq");
 static ustring op_nop("nop");
 static ustring op_normal("normal");
@@ -1158,9 +1159,6 @@ LLVMGEN (llvm_gen_neg)
     TypeDesc type = Result.typespec().simpletype();
     bool is_float = Result.typespec().is_floatbased();
     int num_components = type.aggregate;
-
-    // The following should handle f-f, v-v, v-f, f-v, i-i
-    // That's all that should be allowed by oslc.
     for (int d = 0;  d < 3;  ++d) {  // dx, dy
         for (int i = 0; i < num_components; i++) {
             llvm::Value *a = rop.llvm_load_value (A, d, i, type);
@@ -1170,6 +1168,91 @@ LLVMGEN (llvm_gen_neg)
         }
         if (! Result.has_derivs())
             break;
+    }
+    return true;
+}
+
+
+
+// Implementation for both min and max
+LLVMGEN (llvm_gen_minmax)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& X = *rop.opargsym (op, 1);
+    Symbol& Y = *rop.opargsym (op, 2);
+
+    TypeDesc type = Result.typespec().simpletype();
+    bool is_float = Result.typespec().is_floatbased();
+    int num_components = type.aggregate;
+    for (int i = 0; i < num_components; i++) {
+        llvm::Value *x = rop.llvm_load_value (X, 0, i, type);
+        llvm::Value *y = rop.llvm_load_value (Y, 0, i, type);
+        llvm::Value *cond = NULL;
+        if (op.opname() == op_min)
+            cond = is_float ? rop.builder().CreateFCmpULT(x, y)
+                            : rop.builder().CreateICmpSLT(x, y);
+        else
+            cond = is_float ? rop.builder().CreateFCmpULT(y, x)
+                            : rop.builder().CreateICmpSLT(y, x);
+        llvm::Value *val = rop.builder().CreateSelect (cond, x, y);
+        rop.llvm_store_value (val, Result, 0, i);
+        if (Result.has_derivs()) {
+            for (int d = 1; d <= 2; ++d) {
+                llvm::Value *xd = rop.llvm_load_value (X, d, i, type);
+                llvm::Value *yd = rop.llvm_load_value (Y, d, i, type);
+                llvm::Value *val = rop.builder().CreateSelect (cond, xd, yd);
+                rop.llvm_store_value (val, Result, d, i);
+            }
+        }
+    }
+    return true;
+}
+
+
+
+// Implementation for clamp
+LLVMGEN (llvm_gen_clamp)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& X = *rop.opargsym (op, 1);
+    Symbol& Min = *rop.opargsym (op, 2);
+    Symbol& Max = *rop.opargsym (op, 3);
+
+    TypeDesc type = Result.typespec().simpletype();
+    bool is_float = Result.typespec().is_floatbased();
+    int num_components = type.aggregate;
+    for (int i = 0; i < num_components; i++) {
+        // First do the lower bound
+        llvm::Value *val = rop.llvm_load_value (X, 0, i, type);
+        llvm::Value *min = rop.llvm_load_value (Min, 0, i, type);
+        llvm::Value *cond = is_float ? rop.builder().CreateFCmpULT(val, min)
+                                     : rop.builder().CreateICmpSLT(val, min);
+        val = rop.builder().CreateSelect (cond, min, val);
+        llvm::Value *valdx=NULL, *valdy=NULL;
+        if (Result.has_derivs()) {
+            valdx = rop.llvm_load_value (X, 1, i, type);
+            valdy = rop.llvm_load_value (X, 2, i, type);
+            llvm::Value *mindx = rop.llvm_load_value (Min, 1, i, type);
+            llvm::Value *mindy = rop.llvm_load_value (Min, 2, i, type);
+            valdx = rop.builder().CreateSelect (cond, mindx, valdx);
+            valdy = rop.builder().CreateSelect (cond, mindy, valdy);
+        }
+        // Now do the upper bound
+        llvm::Value *max = rop.llvm_load_value (Max, 0, i, type);
+        cond = is_float ? rop.builder().CreateFCmpUGT(val, max)
+                        : rop.builder().CreateICmpSGT(val, max);
+        val = rop.builder().CreateSelect (cond, max, val);
+        if (Result.has_derivs()) {
+            llvm::Value *maxdx = rop.llvm_load_value (Max, 1, i, type);
+            llvm::Value *maxdy = rop.llvm_load_value (Max, 2, i, type);
+            valdx = rop.builder().CreateSelect (cond, maxdx, valdx);
+            valdy = rop.builder().CreateSelect (cond, maxdy, valdy);
+        }
+        rop.llvm_store_value (val, Result, 0, i);
+        rop.llvm_store_value (valdx, Result, 1, i);
+        rop.llvm_store_value (valdy, Result, 2, i);
     }
     return true;
 }
@@ -2052,7 +2135,7 @@ initialize_llvm_generator_table ()
     // INIT (calculatenormal);
     // INIT (ceil);
     // INIT (cellnoise);
-    // INIT (clamp);
+    INIT (clamp);
     // INIT (cloth);
     // INIT (cloth_specular);
     INIT2 (color, llvm_gen_construct_triple);
@@ -2100,7 +2183,7 @@ initialize_llvm_generator_table ()
     INIT2 (gt, llvm_gen_compare_op);
     // INIT (hair_diffuse);
     // INIT (hair_specular);
-    // INIT (hypot);
+    //stdosl.h  INIT (hypot);
     INIT (if);
     INIT2 (inversesqrt, llvm_gen_generic);
     // INIT (iscameraray);
@@ -2119,13 +2202,13 @@ initialize_llvm_generator_table ()
     INIT (matrix);
     INIT (mxcompassign);
     INIT (mxcompref);
-    // INIT (max);
+    INIT2 (max, llvm_gen_minmax);
     // INIT (microfacet_beckmann);
     // INIT (microfacet_beckmann_refraction);
     // INIT (microfacet_ggx);
     // INIT (microfacet_ggx_refraction);
-    // INIT (min);
-    // INIT (mix);
+    INIT2 (min, llvm_gen_minmax);
+    //stdosl.h   INIT (mix);
     INIT (mod);
     INIT (mul);
     INIT (neg);
