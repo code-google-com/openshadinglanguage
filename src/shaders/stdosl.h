@@ -82,23 +82,23 @@ normal transform (string fromspace, string tospace, normal x)
 }
 
 
-float  degrees (float x)  { return x*(180.0/M_PI); }
 point  degrees (point x)  { return x*(180.0/M_PI); }
 vector degrees (vector x) { return x*(180.0/M_PI); }
 normal degrees (normal x) { return x*(180.0/M_PI); }
 color  degrees (color x)  { return x*(180.0/M_PI); }
+float  degrees (float x)  { return x*(180.0/M_PI); }
 
-float  radians (float x)  { return x*(M_PI/180.0); }
 point  radians (point x)  { return x*(M_PI/180.0); }
 vector radians (vector x) { return x*(M_PI/180.0); }
 normal radians (normal x) { return x*(M_PI/180.0); }
 color  radians (color x)  { return x*(M_PI/180.0); }
+float  radians (float x)  { return x*(M_PI/180.0); }
 
 // Define 2-arg log in terms of 1-arg log (base e)
-float  log (float a, float b)   { return log(a)/log(b); }
-point  log (point a, vector b)  { return log(a)/log(b); }
-vector log (vector a, vector b) { return log(a)/log(b); }
-color  log (color a, color b)   { return log(a)/log(b); }
+point  log (point a,  float b) { return log(a)/log(b); }
+vector log (vector a, float b) { return log(a)/log(b); }
+color  log (color a,  float b) { return log(a)/log(b); }
+float  log (float a,  float b) { return log(a)/log(b); }
 
 // Define concat in terms of shorter concat
 string concat (string a, string b, string c) {

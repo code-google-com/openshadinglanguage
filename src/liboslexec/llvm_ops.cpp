@@ -362,6 +362,27 @@ extern "C" void osl_pow_dvdvf (void *r_, void *a_, float b_)
 
 
 
+inline float safe_sqrt (float f) {
+    if (f <= 0.0f) {
+        return 0.0f;
+    } else {
+        return std::sqrt (f);
+    }
+}
+
+inline float safe_inversesqrt (float f) {
+    if (f <= 0.0f) {
+        return 0.0f;
+    } else {
+        return 1.0f/sqrtf (f);
+    }
+}
+
+MAKE_UNARY_PERCOMPONENT_OP (sqrt, safe_sqrt, sqrt)
+MAKE_UNARY_PERCOMPONENT_OP (inversesqrt, safe_inversesqrt, inversesqrt)
+
+
+
 extern "C" int osl_isnan_if (float f) { return std::isnan (f); }
 extern "C" int osl_isinf_if (float f) { return std::isinf (f); }
 extern "C" int osl_isfinite_if (float f) { return std::isfinite (f); }

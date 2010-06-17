@@ -71,7 +71,6 @@ static ustring op_if("if");
 static ustring op_le("le");
 static ustring op_lt("lt");
 static ustring op_luminance("luminance");
-static ustring op_neg("neg");
 static ustring op_neq("neq");
 static ustring op_nop("nop");
 static ustring op_normal("normal");
@@ -79,7 +78,6 @@ static ustring op_point("point");
 static ustring op_printf("printf");
 static ustring op_shl("shl");
 static ustring op_shr("shr");
-static ustring op_sqrt("sqrt");
 static ustring op_vector("vector");
 static ustring op_warning("warning");
 static ustring op_while("while");
@@ -440,8 +438,6 @@ RuntimeOptimizer::llvm_load_value (const Symbol& sym, int deriv,
         // Regardless of what object this is, if it doesn't have derivs but
         // we're asking for them, return 0.  Integers don't have derivs
         // so we don't need to worry about that case.
-        ASSERT (sym.typespec().is_floatbased() && cast != TypeDesc::TypeInt &&
-                "can't ask for derivs of an int");
         return llvm_constant (0.0f);
     }
 
@@ -1153,6 +1149,33 @@ LLVMGEN (llvm_gen_mod)
 
 
 
+LLVMGEN (llvm_gen_neg)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& A = *rop.opargsym (op, 1);
+
+    TypeDesc type = Result.typespec().simpletype();
+    bool is_float = Result.typespec().is_floatbased();
+    int num_components = type.aggregate;
+
+    // The following should handle f-f, v-v, v-f, f-v, i-i
+    // That's all that should be allowed by oslc.
+    for (int d = 0;  d < 3;  ++d) {  // dx, dy
+        for (int i = 0; i < num_components; i++) {
+            llvm::Value *a = rop.llvm_load_value (A, d, i, type);
+            llvm::Value *r = is_float ? rop.builder().CreateFNeg(a)
+                                      : rop.builder().CreateNeg(a);
+            rop.llvm_store_value (r, Result, d, i);
+        }
+        if (! Result.has_derivs())
+            break;
+    }
+    return true;
+}
+
+
+
 LLVMGEN (llvm_gen_bitwise_binary_op)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
@@ -1185,8 +1208,7 @@ LLVMGEN (llvm_gen_bitwise_binary_op)
 
 
 
-// Simple (pointwise) unary ops (Neg, Abs, Sqrt, Ceil, Floor, ..., Log2,
-// Log10, Erf, Erfc, IsNan/IsInf/IsFinite)
+// Simple (pointwise) unary ops (Abs, Ceil, Floor, ..., 
 LLVMGEN (llvm_gen_unary_op)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
@@ -1201,7 +1223,6 @@ LLVMGEN (llvm_gen_unary_op)
 
     bool dst_float = dst.typespec().is_floatbased();
     bool src_float = src.typespec().is_floatbased();
-    const llvm::Type* float_ty = rop.llvm_type_float();
 
     for (int i = 0; i < num_components; i++) {
         // Get src1/2 component i
@@ -1214,9 +1235,7 @@ LLVMGEN (llvm_gen_unary_op)
         llvm::Value* result = 0;
         ustring opname = op.opname();
 
-        if (opname == op_neg) {
-            result = (src_float) ? rop.builder().CreateFNeg(src_val) : rop.builder().CreateNeg(src_val);
-        } else if (opname == op_compl) {
+        if (opname == op_compl) {
             ASSERT (dst.typespec().is_int());
             result = rop.builder().CreateNot(src_val);
         } else if (opname == op_abs ||
@@ -1231,8 +1250,6 @@ LLVMGEN (llvm_gen_unary_op)
                 llvm::Value* cond = rop.builder().CreateICmpSLT(src_val, rop.llvm_constant(0));
                 result = rop.builder().CreateSelect(cond, negated, src_val);
             }
-        } else if (opname == op_sqrt && src_float) {
-            result = rop.builder().CreateCall(llvm::Intrinsic::getDeclaration(rop.llvm_module(), llvm::Intrinsic::sqrt, &float_ty, 1), src_val);
         } else {
             // Don't know how to handle this.
             rop.shadingsys().error ("Don't know how to handle op '%s', eliding the store\n", opname.c_str());
@@ -1521,11 +1538,6 @@ LLVMGEN (llvm_gen_construct_triple)
             Y.typespec().is_float() && Z.typespec().is_float() &&
             (using_space == false || Space.typespec().is_string()));
 
-    // Otherwise, the args are just data.
-    const Symbol* src_syms[16];
-    for (int i = 1; i < op.nargs(); i++)
-        src_syms[i-1] = rop.opargsym (op, i);
-
     for (int d = 0;  d < 3;  ++d) {  // loop over derivs
         // First, copy the floats into the vector
         for (int c = 0;  c < 3;  ++c) {  // loop over components
@@ -1538,7 +1550,7 @@ LLVMGEN (llvm_gen_construct_triple)
             llvm::Value *args[3];
             args[0] = rop.sg_void_ptr ();  // shader globals
             args[1] = rop.llvm_void_ptr (Result, d);  // vector
-            args[2] = rop.llvm_load_value (*rop.opargsym (op, 1), d); // from
+            args[2] = rop.llvm_load_value (Space); // from
             if (op.opname() == op_vector || d > 0) {
                 // NB derivs are like vecs
                 rop.llvm_call_function ("osl_prepend_vector_from", args, 3);
@@ -1605,6 +1617,44 @@ LLVMGEN (llvm_gen_matrix)
             rop.llvm_call_function ("osl_prepend_matrix_from", args, 3);
         }
     }
+    return true;
+}
+
+
+
+// Derivs
+LLVMGEN (llvm_gen_Dx)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result (*rop.opargsym (op, 0));
+    Symbol& Src (*rop.opargsym (op, 1));
+
+    for (int i = 0; i < Result.typespec().aggregate(); ++i) {
+        llvm::Value* src_val = rop.llvm_load_value (Src, 1 /*dx*/, i);
+        rop.storeLLVMValue (src_val, Result, i, 0);
+    }
+
+    // Don't have 2nd order derivs
+    rop.llvm_zero_derivs (Result);
+    return true;
+}
+
+
+
+// Derivs
+LLVMGEN (llvm_gen_Dy)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result (*rop.opargsym (op, 0));
+    Symbol& Src (*rop.opargsym (op, 1));
+
+    for (int i = 0; i < Result.typespec().aggregate(); ++i) {
+        llvm::Value* src_val = rop.llvm_load_value (Src, 2 /*dy*/, i);
+        rop.storeLLVMValue (src_val, Result, i, 0);
+    }
+
+    // Don't have 2nd order derivs
+    rop.llvm_zero_derivs (Result);
     return true;
 }
 
@@ -1813,12 +1863,16 @@ LLVMGEN (llvm_gen_generic)
     Symbol& Result  = *rop.opargsym (op, 0);
     std::vector<const Symbol *> args;
     bool any_deriv_args = false;
-    std::string name = std::string("osl_") + op.opname().string() + "_";
     for (int i = 0;  i < op.nargs();  ++i) {
         Symbol *s (rop.opargsym (op, i));
         args.push_back (s);
         any_deriv_args |= (i > 0 && s->has_derivs());
-        if (Result.has_derivs() && s->has_derivs())
+    }
+
+    std::string name = std::string("osl_") + op.opname().string() + "_";
+    for (int i = 0;  i < op.nargs();  ++i) {
+        Symbol *s (rop.opargsym (op, i));
+        if (any_deriv_args && Result.has_derivs() && s->has_derivs())
             name += "d";
         if (s->typespec().is_float())
             name += "f";
@@ -2016,8 +2070,8 @@ initialize_llvm_generator_table ()
     INIT2 (distance, llvm_gen_generic);
     INIT (div);
     INIT2 (dot, llvm_gen_generic);
-    // INIT (Dx);
-    // INIT (Dy);
+    INIT (Dx);
+    INIT (Dy);
     INIT2 (dowhile, llvm_gen_loop_op);
     // INIT (emission);
     // INIT (end);
@@ -2048,7 +2102,7 @@ initialize_llvm_generator_table ()
     // INIT (hair_specular);
     // INIT (hypot);
     INIT (if);
-    // INIT (inversesqrt);
+    INIT2 (inversesqrt, llvm_gen_generic);
     // INIT (iscameraray);
     INIT2 (isfinite, llvm_gen_generic);
     INIT2 (isinf, llvm_gen_generic);
@@ -2074,7 +2128,7 @@ initialize_llvm_generator_table ()
     // INIT (mix);
     INIT (mod);
     INIT (mul);
-    INIT2 (neg, llvm_gen_unary_op);
+    INIT (neg);
     INIT2 (neq, llvm_gen_compare_op);
     // INIT (noise);
     // INIT (nop);
@@ -2106,7 +2160,7 @@ initialize_llvm_generator_table ()
     // INIT (smoothstep);
     // INIT (snoise);
     // INIT (spline);
-    INIT2 (sqrt, llvm_gen_unary_op);
+    INIT2 (sqrt, llvm_gen_generic);
     INIT2 (startswith, llvm_gen_generic);
     // INIT (step);
     INIT2 (strlen, llvm_gen_generic);
