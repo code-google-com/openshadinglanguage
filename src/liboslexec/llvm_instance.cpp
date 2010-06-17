@@ -1924,7 +1924,8 @@ LLVMGEN (llvm_gen_unary_reduction)
 
 
 
-// Generic llvm code generation.  Assumes:
+// Generic llvm code generation.  See the comments in llvm_ops.cpp for
+// the full list of assumptions and conventions.  But in short:
 //   1. All polymorphic and derivative cases implemented as functions in
 //      llvm_ops.cpp -- no custom IR is needed.
 //   2. Naming conention is: osl_NAME_{args}, where args is the

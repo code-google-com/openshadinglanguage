@@ -26,6 +26,69 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+/*
+
+This file contains implementations of shadeops that will be used to JIT
+LLVM code.  This file will be compiled by llvm-gcc, turned into LLVM IR,
+which will be used to "seed" the LLVM JIT engine at runtime.  This is
+*much* easier than creating LLVM IR directly (see llvm_instance.cpp for
+examples), as you are just coding in C++, but there are some rules:
+
+* Shadeop implementations MUST be named: osl_NAME_{args} where NAME is
+  the traditional name of the oso shadeop, and {args} is the
+  concatenation of type codes for all args including the return value --
+  f/i/v/m/s for float/int/triple/matrix/string that don't have
+  derivatives, and df/dv/dm for duals (values with derivatives).
+  (Special case: x for 'void' return value.)
+
+* Shadeops that return a string, int, or float without derivatives, just
+  return the value directly.  Shadeops that "return" a float with
+  derivatives, or an aggregate type (color, point/vector/normal, or
+  matrix), will be "void" functions, and their first argument is a
+  pointer to where the "return value" should go.
+
+* Argument passing: int and float (without derivs) are passed as int and
+  float.  Aggregates (color/point/vector/normal/matrix), arrays of any
+  types, or floats with derivatives are passed as a void* and to their
+  memory location you need to cast appropriately.  Strings are passed as
+  char*, but they are always the characters of 'ustring' objects, so are
+  unique.  See the handy USTR, MAT, VEC, DFLOAT, DVEC macros for
+  handy/cheap casting of those void*'s to references to ustring&,
+  Matrix44&, Vec3&, Dual2<float>&, and Dual2<Vec3>, respectively.
+
+* You must provide all allowable polymorphic and derivative combinations!
+  Remember that string, int, and matrix can't have a derivative, so
+  there's no need to do the dm/ds/di combinations.  Furthermore, if the
+  function returns an int, string, or matrix, there's no need to worry
+  about derivs of the arguments, either.  (Upstream it will recognize
+  that if the results can't have derivs, there's no need to pass derivs
+  of arguments.)
+
+* For the special case of simple functions that operate per-component
+  and have only 1 or 2 arguments and a return value of the same type,
+  note the MAKE_UNARY_PERCOMPONENT_OP and MAKE_BINARY_PERCOMPONENT_OP
+  macros that will populate all the polymorphic and derivative cases
+  for you.
+
+* Shadeop implementations must have 'extern "C"' declaration, that's the
+  only way they can be "seen" by LLVM, given the mangling that would
+  occur otherwise.  (This is why we use the _{args} suffixes to 
+  distinguish polymorphic and deiv/noderiv versions.)
+
+* You may use full C++, including standard library.  You may have calls
+  to any other part of the OSL library software.  You may use Boost,
+  Ilmbase (Vec3, Matrix44, etc.) or any other external routines.  You
+  may write templates or helper functions (which do NOT need to be
+  extern "C", since they don't need to be runtime-discoverable by LLVM.
+
+* If you need to access non-passed globals (P, N, etc.) or make renderer
+  callbacks, just make the first argument to the function a void* that
+  you cast to a SingleShaderGlobal* and access the globals, shading
+  context (sg->context), opaque renderer state (sg->renderstate), etc.
+
+*/
+
+
 #include <string>
 #include <cstdarg>
 #include <cstdio>
