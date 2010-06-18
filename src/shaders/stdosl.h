@@ -138,6 +138,11 @@ float step (float edge, float x) {
     return (x>=edge);
 }
 
+// Implement luminance efficiently with dot product.
+float luminance (color c) {
+    return dot ((vector)c, vector(0.2126, 0.7152, 0.0722));
+}
+
 // Define concat in terms of shorter concat
 string concat (string a, string b, string c) {
     return concat(concat(a,b), c);

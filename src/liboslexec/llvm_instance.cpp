@@ -71,7 +71,6 @@ static ustring op_gt("gt");
 static ustring op_if("if");
 static ustring op_le("le");
 static ustring op_lt("lt");
-static ustring op_luminance("luminance");
 static ustring op_min("min");
 static ustring op_neq("neq");
 static ustring op_nop("nop");
@@ -1864,69 +1863,6 @@ LLVMGEN (llvm_gen_regex)
 
 
 
-// unary reduction ops (length, luminance, (much more complicated...))
-LLVMGEN (llvm_gen_unary_reduction)
-{
-    Opcode &op (rop.inst()->ops()[opnum]);
-    Symbol& dst  = *rop.opargsym (op, 0);
-    Symbol& src = *rop.opargsym (op, 1);
-    if (SkipSymbol(dst) ||
-        SkipSymbol(src))
-        return false;
-
-    bool dst_derivs = dst.has_derivs();
-    // Loop over the source
-    int num_components = src.typespec().simpletype().aggregate;
-
-    llvm::Value* final_result = 0;
-    ustring opname = op.opname();
-
-    for (int i = 0; i < num_components; i++) {
-        // Get src1/2 component i
-        llvm::Value* src_load = rop.loadLLVMValue (src, i, 0);
-
-        if (!src_load) return false;
-
-        llvm::Value* src_val = src_load;
-
-        // Perform the op
-        llvm::Value* result = 0;
-
-        if (opname == op_luminance) {
-            float coeff = 0.f;
-            switch (i) {
-            case 0: coeff = .2126f; break;
-            case 1: coeff = .7152f; break;
-            default: coeff = .0722f; break;
-            }
-            result = rop.builder().CreateFMul(src_val, llvm::ConstantFP::get(rop.llvm_context(), llvm::APFloat(coeff)));
-        } else {
-            // Don't know how to handle this.
-            rop.shadingsys().error ("Don't know how to handle op '%s', eliding the store\n", opname.c_str());
-        }
-
-        if (result) {
-            if (final_result) {
-                final_result = rop.builder().CreateFAdd(final_result, result);
-            } else {
-                final_result = result;
-            }
-        }
-    }
-
-    if (final_result) {
-
-        rop.storeLLVMValue (final_result, dst, 0, 0);
-        if (dst_derivs) {
-            rop.shadingsys().info ("punting on derivatives for now\n");
-            // FIXME
-        }
-    }
-    return true;
-}
-
-
-
 // Generic llvm code generation.  See the comments in llvm_ops.cpp for
 // the full list of assumptions and conventions.  But in short:
 //   1. All polymorphic and derivative cases implemented as functions in
@@ -2209,7 +2145,7 @@ initialize_llvm_generator_table ()
     INIT2 (log2, llvm_gen_generic);
     INIT2 (logb, llvm_gen_generic);
     INIT2 (lt, llvm_gen_compare_op);
-    INIT2 (luminance, llvm_gen_unary_reduction);
+    //stdosl.h   INIT (luminance);
     INIT (matrix);
     INIT (mxcompassign);
     INIT (mxcompref);
