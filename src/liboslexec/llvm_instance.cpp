@@ -63,6 +63,7 @@ static ustring op_end("end");
 static ustring op_eq("eq");
 static ustring op_error("error");
 static ustring op_fabs("fabs");
+static ustring op_floor("floor");
 static ustring op_for("for");
 static ustring op_format("format");
 static ustring op_ge("ge");
@@ -77,11 +78,13 @@ static ustring op_nop("nop");
 static ustring op_normal("normal");
 static ustring op_point("point");
 static ustring op_printf("printf");
+static ustring op_round("round");
 static ustring op_shl("shl");
 static ustring op_shr("shr");
+static ustring op_step("step");
+static ustring op_trunc("trunc");
 static ustring op_vector("vector");
 static ustring op_warning("warning");
-static ustring op_while("while");
 static ustring op_xor("xor");
 
 
@@ -1291,7 +1294,7 @@ LLVMGEN (llvm_gen_bitwise_binary_op)
 
 
 
-// Simple (pointwise) unary ops (Abs, Ceil, Floor, ..., 
+// Simple (pointwise) unary ops (Abs, ..., 
 LLVMGEN (llvm_gen_unary_op)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
@@ -1953,6 +1956,13 @@ LLVMGEN (llvm_gen_generic)
         any_deriv_args |= (i > 0 && s->has_derivs());
     }
 
+    // Special cases: functions that have no derivs -- suppress them
+    if (any_deriv_args)
+        if (op.opname() == op_floor || op.opname() == op_ceil ||
+            op.opname() == op_round || op.opname() == op_step ||
+            op.opname() == op_trunc)
+            any_deriv_args = false;
+
     std::string name = std::string("osl_") + op.opname().string() + "_";
     for (int i = 0;  i < op.nargs();  ++i) {
         Symbol *s (rop.opargsym (op, i));
@@ -2134,7 +2144,7 @@ initialize_llvm_generator_table ()
     INIT2 (bitor, llvm_gen_bitwise_binary_op);
     // INIT (bssrdf_cubic);
     // INIT (calculatenormal);
-    // INIT (ceil);
+    INIT2 (ceil, llvm_gen_generic);
     // INIT (cellnoise);
     INIT (clamp);
     // INIT (cloth);
@@ -2172,8 +2182,8 @@ initialize_llvm_generator_table ()
     // INIT (fakefur_specular);
     // INIT (fakefur_skin);
     // INIT (filterwidth);
-    // INIT (floor);
-    // INIT (fmod);
+    INIT2 (floor, llvm_gen_generic);
+    INIT2 (fmod, llvm_gen_mod);
     INIT2 (for, llvm_gen_loop_op);
     INIT2 (format, llvm_gen_printf);
     // INIT (fresnel);
@@ -2233,11 +2243,11 @@ initialize_llvm_generator_table ()
     // INIT (refraction);
     INIT2 (regex_match, llvm_gen_regex);
     INIT2 (regex_search, llvm_gen_regex);
-    // INIT (round);
+    INIT2 (round, llvm_gen_generic);
     // INIT (setmessage);
     INIT2 (shl, llvm_gen_bitwise_binary_op);
     INIT2 (shr, llvm_gen_bitwise_binary_op);
-    // INIT (sign);
+    INIT2 (sign, llvm_gen_generic);
     INIT2 (sin, llvm_gen_generic);
     // INIT (sincos);
     INIT2 (sinh, llvm_gen_generic);
@@ -2246,7 +2256,7 @@ initialize_llvm_generator_table ()
     // INIT (spline);
     INIT2 (sqrt, llvm_gen_generic);
     INIT2 (startswith, llvm_gen_generic);
-    // INIT (step);
+    INIT2 (step, llvm_gen_generic);
     INIT2 (strlen, llvm_gen_generic);
     INIT (sub);
     INIT2 (substr, llvm_gen_generic);
@@ -2261,7 +2271,7 @@ initialize_llvm_generator_table ()
     // INIT (translucent);
     // INIT (transparent);
     INIT2 (transpose, llvm_gen_generic);
-    // INIT (trunc);
+    INIT2 (trunc, llvm_gen_generic);
     // INIT (useparam);
     INIT2 (vector, llvm_gen_construct_triple);
     // INIT (ward);

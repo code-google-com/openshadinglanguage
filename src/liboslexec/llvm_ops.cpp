@@ -444,7 +444,36 @@ inline float safe_inversesqrt (float f) {
 MAKE_UNARY_PERCOMPONENT_OP (sqrt, safe_sqrt, sqrt)
 MAKE_UNARY_PERCOMPONENT_OP (inversesqrt, safe_inversesqrt, inversesqrt)
 
-
+extern "C" float osl_floor_ff (float x) { return floorf(x); }
+extern "C" void osl_floor_vv (void *r, void *x_) {
+    const Vec3 &x (VEC(x_));
+    VEC(r).setValue (floorf(x[0]), floorf(x[1]), floorf(x[2]));
+}
+extern "C" float osl_ceil_ff (float x) { return ceilf(x); }
+extern "C" void osl_ceil_vv (void *r, void *x_) {
+    const Vec3 &x (VEC(x_));
+    VEC(r).setValue (ceilf(x[0]), ceilf(x[1]), ceilf(x[2]));
+}
+extern "C" float osl_round_ff (float x) { return roundf(x); }
+extern "C" void osl_round_vv (void *r, void *x_) {
+    const Vec3 &x (VEC(x_));
+    VEC(r).setValue (roundf(x[0]), roundf(x[1]), roundf(x[2]));
+}
+extern "C" float osl_trunc_ff (float x) { return truncf(x); }
+extern "C" void osl_trunc_vv (void *r, void *x_) {
+    const Vec3 &x (VEC(x_));
+    VEC(r).setValue (truncf(x[0]), truncf(x[1]), truncf(x[2]));
+}
+extern "C" float osl_sign_ff (float x) {
+    return x < 0.0f ? -1.0f : (x==0.0f ? 0.0f : 1.0f);
+}
+extern "C" void osl_sign_vv (void *r, void *x_) {
+    const Vec3 &x (VEC(x_));
+    VEC(r).setValue (osl_sign_ff(x[0]), osl_sign_ff(x[1]), osl_sign_ff(x[2]));
+}
+extern "C" float osl_step_fff (float edge, float x) {
+    return x < edge ? 0.0f : 1.0f;
+}
 
 extern "C" int osl_isnan_if (float f) { return std::isnan (f); }
 extern "C" int osl_isinf_if (float f) { return std::isinf (f); }
