@@ -480,6 +480,17 @@ extern "C" int osl_isinf_if (float f) { return std::isinf (f); }
 extern "C" int osl_isfinite_if (float f) { return std::isfinite (f); }
 
 
+extern "C" int osl_abs_ii (int x) { return abs(x); }
+extern "C" int osl_fabs_ii (int x) { return abs(x); }
+
+inline Dual2<float> fabsf (const Dual2<float> &x) {
+    return x.val() >= 0 ? x : -x;
+}
+
+MAKE_UNARY_PERCOMPONENT_OP (abs, fabsf, fabsf);
+
+
+
 
 // Closure functions
 

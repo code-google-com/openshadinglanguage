@@ -107,8 +107,6 @@ typedef bool (*OpLLVMGen) (LLVMGEN_ARGS);
 /// checking.  Note that nothing that's compiled into llvm_ops.cpp ought
 /// to need a declaration here.
 static const char *llvm_helper_function_table[] = {
-    "fabsf", "ff",
-
     "osl_closure_clear", "xC",
     "osl_closure_assign", "xCC",
     "osl_add_closure_closure", "xCCC",
@@ -1323,18 +1321,6 @@ LLVMGEN (llvm_gen_unary_op)
         if (opname == op_compl) {
             ASSERT (dst.typespec().is_int());
             result = rop.builder().CreateNot(src_val);
-        } else if (opname == op_abs ||
-                   opname == op_fabs) {
-            if (src_float) {
-                // Call fabsf
-                result = rop.llvm_call_function ("fabsf", &src_val, 1);
-            } else {
-                // neg_version = -x
-                // result = (x < 0) ? neg_version : x
-                llvm::Value* negated = rop.builder().CreateNeg(src_val);
-                llvm::Value* cond = rop.builder().CreateICmpSLT(src_val, rop.llvm_constant(0));
-                result = rop.builder().CreateSelect(cond, negated, src_val);
-            }
         } else {
             // Don't know how to handle this.
             rop.shadingsys().error ("Don't know how to handle op '%s', eliding the store\n", opname.c_str());
@@ -2063,7 +2049,7 @@ initialize_llvm_generator_table ()
 #define INIT(name) llvm_generator_table[ustring(#name)] = llvm_gen_##name;
 
     INIT (aassign);
-    INIT2 (abs, llvm_gen_unary_op);
+    INIT2 (abs, llvm_gen_generic);
     INIT2 (acos, llvm_gen_generic);
     INIT (add);
     // INIT (and);
@@ -2113,7 +2099,7 @@ initialize_llvm_generator_table ()
     INIT2 (exp, llvm_gen_generic);
     INIT2 (exp2, llvm_gen_generic);
     INIT2 (expm1, llvm_gen_generic);
-    INIT2 (fabs, llvm_gen_unary_op);
+    INIT2 (fabs, llvm_gen_generic);
     // INIT (fakefur_diffuse);
     // INIT (fakefur_specular);
     // INIT (fakefur_skin);
