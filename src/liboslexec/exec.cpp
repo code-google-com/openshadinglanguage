@@ -536,7 +536,8 @@ ShadingExecution::bind_connection (const Connection &con)
 void
 ShadingExecution::run (Runflag *runflags, int *indices, int nindices, int beginop, int endop)
 {
-    bool run_llvm = true;
+#if USE_LLVM
+    bool run_llvm = context()->shadingsys().use_llvm();
     if (run_llvm && beginop < 0 &&
         context()->attribs()->shadergroup (shaderuse())[layer()]) {
         m_shadingsys = &m_context->shadingsys ();
@@ -590,6 +591,7 @@ ShadingExecution::run (Runflag *runflags, int *indices, int nindices, int begino
         }
         return;
     }
+#endif
 
     if (m_debug)
         m_shadingsys->info ("Running ShadeExec %p, shader %s",

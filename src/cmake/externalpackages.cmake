@@ -235,9 +235,26 @@ endif (USE_OPENGL)
 ###########################################################################
 # LLVM library setup
 
-find_library ( LLVM_LIBRARY
-               NAMES LLVM-2.7
-               PATHS /usr/local/lib )
+if (USE_LLVM)
+    find_library ( LLVM_LIBRARY
+                   NAMES LLVM-2.7
+                   PATHS /usr/local/lib )
+    find_path ( LLVM_INCLUDES llvm/LLVMContext.h
+                PATHS /usr/local/include
+                )
+    if (LLVM_LIBRARY AND LLVM_INCLUDES)
+        set (LLVM_FOUND TRUE)
+        message (STATUS "LLVM includes = ${LLVM_INCLUDES}")
+        message (STATUS "LLVM library = ${LLVM_LIBRARY}")
+        add_definitions ("-DUSE_LLVM=1")
+    else ()
+        message (STATUS "LLVM not found")
+        add_definitions ("-DUSE_LLVM=0")
+    endif ()
+else (USE_LLVM)
+    message (STATUS "LLVM will not be used")
+    add_definitions ("-DUSE_LLVM=0")
+endif (USE_LLVM)
 
 # end LLVM library setup
 ###########################################################################

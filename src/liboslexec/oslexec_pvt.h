@@ -370,8 +370,6 @@ public:
     ///
     void make_symbol_room (size_t moresyms=1);
 
-
-    // LLVM stuff
     llvm::Function* LLVMVersion() { return llvm_version; }
 
 private:
@@ -443,6 +441,8 @@ private:
     mutex m_mutex;                   ///< Thread-safe optimization
     friend class ShadingSystemImpl;
 };
+
+
 
 class ShadingSystemImpl : public ShadingSystem
 {
@@ -541,6 +541,7 @@ public:
     bool debug_nan () const { return m_debugnan; }
     bool lockgeom_default () const { return m_lockgeom_default; }
     int optimize () const { return m_optimize; }
+    int use_llvm () const { return m_use_llvm; }
 
     ustring commonspace_synonym () const { return m_commonspace_synonym; }
 
@@ -618,6 +619,7 @@ private:
     bool m_debugnan;                      ///< Root out NaN's?
     bool m_lockgeom_default;              ///< Default value of lockgeom
     int m_optimize;                       ///< Runtime optimization level
+    bool m_use_llvm;                      ///< Use LLVM to compile
     std::string m_searchpath;             ///< Shader search path
     std::vector<std::string> m_searchpath_dirs; ///< All searchpath dirs
     ustring m_commonspace_synonym;        ///< Synonym for "common" space
@@ -650,6 +652,7 @@ private:
     atomic_int m_stat_total_syms;         ///< Stat: total syms in all insts
     atomic_int m_stat_syms_with_derivs;   ///< Stat: syms with derivatives
     double m_stat_optimization_time;      ///< Stat: time spent optimizing
+    double m_stat_llvm_time;              ///< Stat: time spent on LLVM
     spin_mutex m_stat_mutex;              ///< Mutex for non-atomic stats
 #ifdef DEBUG_ADJUST_VARYING
     atomic_ll m_adjust_calls;             ///< Calls to adjust_varying

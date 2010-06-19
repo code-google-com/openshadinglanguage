@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "OpenImageIO/filesystem.h"
 
 #include "oslexec_pvt.h"
+#include "llvm_headers.h"
 
 using namespace OSL;
 using namespace OSL::pvt;
@@ -129,7 +130,7 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
       m_statslevel (0), m_debug (false), m_lazylayers (true),
       m_lazyglobals (false),
       m_clearmemory (false), m_rebind (false), m_debugnan (false),
-      m_lockgeom_default (false), m_optimize (1),
+      m_lockgeom_default (false), m_optimize (1), m_use_llvm(true),
       m_commonspace_synonym("world"),
       m_in_group (false),
       m_global_heap_total (0),
@@ -152,6 +153,7 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
     m_stat_total_syms = 0;
     m_stat_syms_with_derivs = 0;
     m_stat_optimization_time = 0;
+    m_stat_llvm_time = 0;
 
     init_global_heap_offsets ();
 
@@ -177,6 +179,11 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
         m_texturesys->attribute ("automip",  1);
         m_texturesys->attribute ("autotile", 64);
     }
+
+    // Alternate way of turning on LLVM mode (temporary/experimental)
+    const char *llvm_env = getenv ("OSL_USE_LLVM");
+    if (llvm_env && *llvm_env)
+        m_use_llvm = atoi (llvm_env);
 }
 
 
@@ -186,6 +193,12 @@ ShadingSystemImpl::~ShadingSystemImpl ()
     printstats ();
     // N.B. just let m_texsys go -- if we asked for one to be created,
     // we asked for a shared one.
+
+#if USE_LLVM
+//    delete m_llvm_exec;
+//    delete m_llvm_module;
+    delete m_llvm_context;
+#endif
 }
 
 
@@ -234,6 +247,10 @@ ShadingSystemImpl::attribute (const std::string &name, TypeDesc type,
     }
     if (name == "optimize" && type == TypeDesc::INT) {
         m_optimize = *(const int *)val;
+        return true;
+    }
+    if (name == "use_llvm" && type == TypeDesc::INT) {
+        m_use_llvm = *(const int *)val;
         return true;
     }
     if (name == "commonspace" && type == TypeDesc::STRING) {
@@ -288,6 +305,10 @@ ShadingSystemImpl::getattribute (const std::string &name, TypeDesc type,
     }
     if (name == "optimize" && type == TypeDesc::INT) {
         *(int *)val = m_optimize;
+        return true;
+    }
+    if (name == "use_llvm" && type == TypeDesc::INT) {
+        *(int *)val = m_use_llvm;
         return true;
     }
     return false;
@@ -444,6 +465,8 @@ ShadingSystemImpl::getstats (int level) const
                             (100.0*(int)m_stat_syms_with_derivs)/(int)m_stat_total_syms);
     out << "  Runtime optimization cost: "
         << Strutil::timeintervalformat (m_stat_optimization_time) << "\n";
+    out << "  LLVM code generation: "
+        << Strutil::timeintervalformat (m_stat_llvm_time) << "\n";
 
     out << "  Regex's compiled: " << m_stat_regexes << "\n";
 

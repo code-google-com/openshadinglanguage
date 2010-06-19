@@ -21,17 +21,8 @@ endif ()
 set ( CMAKE_C_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror" )
 set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror" )
 
-#EXEC_PROGRAM("/usr/local/bin/llvm-config" ARGS "--cxxflags" OUTPUT_VARIABLE LLVM_CXX_FLAGS)
-set (LLVM_CXX_FLAGS "-D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -g3")
-#EXEC_PROGRAM("/usr/local/bin/llvm-config" ARGS "--ldflags" OUTPUT_VARIABLE LLVM_LD_FLAGS)
-#EXEC_PROGRAM("/usr/local/bin/llvm-config" ARGS "--libs" OUTPUT_VARIABLE LLVM_LIB_FLAGS)
-
-set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${LLVM_CXX_FLAGS}")
-#set ( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${LLVM_LD_FLAGS} ${LLVM_LIB_FLAGS}")
-#set ( CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} ${LLVM_LD_FLAGS} ${LLVM_LIB_FLAGS}")
-#set ( CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${LLVM_LD_FLAGS} ${LLVM_LIB_FLAGS}")
-
 set (USE_TBB ON CACHE BOOL "Use TBB if needed")
+set (USE_LLVM ON CACHE BOOL "Use LLVM")
 
 set (CMAKE_MODULE_PATH
      "${PROJECT_SOURCE_DIR}/cmake/modules"
@@ -43,7 +34,11 @@ include (externalpackages)
 include (flexbison)
 include (oiio)
 include_directories (${OPENIMAGEIO_INCLUDES})
-include_directories ("/usr/local/include")
+#include_directories ("/usr/local/include")
+
+#set ( LLVM_CXX_FLAGS "-D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -g3" )
+#set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${LLVM_CXX_FLAGS}" )
+
 
 # We want CTest for testing
 include (CTest)
@@ -90,7 +85,6 @@ add_subdirectory (oslc)
 add_subdirectory (shaders)
 add_subdirectory (oslinfo)
 add_subdirectory (testshade)
-add_subdirectory (llvmshade)
 
 add_subdirectory (include)
 add_subdirectory (doc)

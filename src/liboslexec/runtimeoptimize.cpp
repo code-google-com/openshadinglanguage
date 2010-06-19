@@ -75,8 +75,10 @@ RuntimeOptimizer::set_inst (int newlayer)
     m_all_consts.clear ();
     m_symbol_aliases.clear ();
     m_block_aliases.clear ();
+#if USE_LLVM
     m_llvm_context = m_shadingsys.llvm_context ();
     m_llvm_module = m_shadingsys.m_llvm_module;
+#endif
 }
 
 
@@ -1576,9 +1578,10 @@ RuntimeOptimizer::find_basic_blocks (bool do_llvm)
             block_begin[s.initbegin()] = true;
     }
 
-    // Main code starts a basic block
-    if (! do_llvm)  // ...but if we do this for LLVM, it crashes.  FIXME!
-    block_begin[inst()->m_maincodebegin] = true;
+    // Main code starts a basic block -- but not if we're doing this for
+    // LLVM generation, because the Entry block is special.
+    if (! do_llvm)
+        block_begin[inst()->m_maincodebegin] = true;
 
     for (size_t opnum = 0;  opnum < code.size();  ++opnum) {
         // Anyplace that's the target of a jump instruction starts a basic block
@@ -1597,13 +1600,17 @@ RuntimeOptimizer::find_basic_blocks (bool do_llvm)
 
     // Now color the blocks with unique identifiers
     int bbid = 1;  // next basic block ID to use
+#if USE_LLVM
     m_bb_map.resize (code.size(), NULL);
+#endif
     for (size_t opnum = 0;  opnum < code.size();  ++opnum) {
         if (block_begin[opnum]) {
             ++bbid;
+#if USE_LLVM
             if (do_llvm)
                 m_bb_map[opnum] = llvm::BasicBlock::Create (llvm_context(), "",
                                                             m_layer_func);
+#endif
         }
         m_bblockids[opnum] = bbid;
     }
@@ -2671,14 +2678,26 @@ RuntimeOptimizer::optimize_group ()
           new_nops, old_nops,
           100.0*double((long long)new_nops-(long long)old_nops)/double(old_nops));
 
-    bool do_llvm = true;
-    if (do_llvm) {
+#if USE_LLVM
+    if (m_shadingsys.use_llvm()) {
+        Timer timer;
+        // Let's punt on multithreading LLVM for the time being,
+        // just make a big lock.
+        static mutex llvm_mutex;
+        lock_guard llvm_lock (llvm_mutex);
+        
         m_shadingsys.SetupLLVM ();
         for (int layer = 0;  layer < nlayers;  ++layer) {
             set_inst (layer);
             build_llvm_version ();
         }
+        double llvm_time = timer();
+        {
+            spin_lock statlock (m_shadingsys.m_stat_mutex);
+            m_shadingsys.m_stat_llvm_time += llvm_time;
+        }
     }
+#endif
 }
 
 

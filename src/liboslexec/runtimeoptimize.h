@@ -51,13 +51,17 @@ class RuntimeOptimizer {
 public:
     RuntimeOptimizer (ShadingSystemImpl &shadingsys, ShaderGroup &group)
         : m_shadingsys(shadingsys), m_group(group),
-          m_inst(NULL), m_next_newconst(0),
-          m_llvm_context(NULL), m_llvm_module(NULL), m_builder(NULL)
+          m_inst(NULL), m_next_newconst(0)
+#if USE_LLVM
+        , m_llvm_context(NULL), m_llvm_module(NULL), m_builder(NULL)
+#endif
     {
     }
 
     ~RuntimeOptimizer () {
+#if USE_LLVM
         delete m_builder;
+#endif
     }
 
     void optimize_group ();
@@ -236,6 +240,7 @@ public:
     ///
     void initialize_llvm_stuff ();
 
+#if USE_LLVM
     typedef std::map<std::string, llvm::AllocaInst*> AllocationMap;
     typedef std::vector<llvm::BasicBlock*> BasicBlockMap;
 
@@ -419,6 +424,7 @@ public:
     const llvm::PointerType *llvm_type_matrix_ptr() { return m_llvm_type_matrix_ptr; }
 
     void llvm_do_optimization ();
+#endif
 
 private:
     ShadingSystemImpl &m_shadingsys;
@@ -436,6 +442,7 @@ private:
     std::vector<int> m_bblockids;       ///< Basic block IDs for each op
     std::vector<bool> m_in_conditional; ///< Whether each op is in a cond
 
+#if USE_LLVM
     // LLVM stuff
     llvm::LLVMContext *m_llvm_context;
     llvm::Module *m_llvm_module;
@@ -454,6 +461,7 @@ private:
     const llvm::PointerType *m_llvm_type_float_ptr;
     const llvm::PointerType *m_llvm_type_triple_ptr;
     const llvm::PointerType *m_llvm_type_matrix_ptr;
+#endif
 
     // Persistant data shared between layers
     bool m_unknown_message_sent;      ///< Somebody did a non-const setmessage

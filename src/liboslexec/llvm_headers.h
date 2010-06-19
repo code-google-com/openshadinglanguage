@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef OSL_LLVM_HEADERS_H
 #define OSL_LLVM_HEADERS_H
 
+#if USE_LLVM
+
 #include <llvm/Bitcode/ReaderWriter.h>
 #include <llvm/Constants.h>
 #include <llvm/DerivedTypes.h>
@@ -48,4 +50,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <llvm/Target/TargetData.h>
 #include <llvm/Target/TargetSelect.h>
 
-#endif OSL_LLVM_HEADERS_H
+#endif /* USE_LLVM */
+
+#endif /* OSL_LLVM_HEADERS_H */

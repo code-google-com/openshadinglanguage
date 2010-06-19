@@ -146,7 +146,7 @@ getargs (int argc, const char *argv[])
                 "-o %L %L", &outputvars, &outputfiles,
                         "Output (variable, filename)",
                 "-od %s", &dataformatname, "Set the output data format to one of:\n"
-                        "\t\t\tuint8, half, float",
+                        "\t\t\t\tuint8, half, float",
                 "--layer %s", &layername, "Set next layer name",
                 "--fparam %L %L",
                         &fparams, &fparams,
@@ -156,7 +156,7 @@ getargs (int argc, const char *argv[])
                         "Add an integer param (args: name value)",
                 "--vparam %L %L %L %L",
                         &vparams, &vparams, &vparams, &vparams,
-                        "Add a vector or color param (args: name xval yval zval)",
+                        "Add a vector or color param (args: name x y z)",
                 "--sparam %L %L",
                         &sparams, &sparams,
                         "Add a string param (args: name value)",

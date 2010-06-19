@@ -20,11 +20,16 @@ SET ( liboslexec_srcs
           ../liboslcomp/ast.cpp ../liboslcomp/codegen.cpp
           ../liboslcomp/oslcomp.cpp ../liboslcomp/symtab.cpp
           ../liboslcomp/typecheck.cpp
-          llvm_instance.cpp
     )
+
+if (LLVM_FOUND)
+    SET ( liboslexec_srcs ${liboslexec_srcs} llvm_instance.cpp )
+endif ()
+
 FILE ( GLOB compiler_headers "*.h" )
 
 FLEX_BISON ( osolex.l osogram.y oso liboslexec_srcs compiler_headers )
+
 
 MACRO ( LLVM_COMPILE llvm_src srclist )
     GET_FILENAME_COMPONENT ( llvmsrc_we ${llvm_src} NAME_WE )
@@ -37,6 +42,9 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
     MESSAGE (STATUS "LLVM_COMPILE cpp=${llvm_bc_cpp}")
     SET ( ${srclist} ${${srclist}} ${llvm_bc_cpp} )
     EXEC_PROGRAM ( llvm-config ARGS --cxxflags OUTPUT_VARIABLE LLVM_COMPILE_FLAGS )
+    set (LLVM_COMPILE_FLAGS "${LLVM_COMPILE_FLAGS} -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -g3 --combine")
+    set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS" )
+
     # Command to turn the .cpp file into LLVM assembly language .s, into
     # LLVM bitcode .bc, then back into a C++ file with the bc embedded!
     ADD_CUSTOM_COMMAND ( OUTPUT ${llvm_bc_cpp}
@@ -48,7 +56,9 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} )
 ENDMACRO ( )
 
-LLVM_COMPILE ( llvm_ops.cpp liboslexec_srcs )
+if (LLVM_FOUND)
+    LLVM_COMPILE ( llvm_ops.cpp liboslexec_srcs )
+endif ()
 
 ADD_LIBRARY ( oslexec SHARED ${liboslexec_srcs} )
 TARGET_LINK_LIBRARIES ( oslexec oslcomp ${OPENIMAGEIO_LIBRARY} ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} ${LLVM_LIBRARY})

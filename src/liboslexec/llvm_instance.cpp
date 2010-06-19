@@ -2308,12 +2308,16 @@ RuntimeOptimizer::build_llvm_version ()
 
     builder().CreateRetVoid();
 
+#ifdef DEBUG
     llvm::errs() << "layer_func (" << unique_layer_name << ") after llvm  = " << *m_layer_func << "\n";
+#endif
 
     // Now optimize the result
     llvm_do_optimization ();
 
+#ifdef DEBUG
     llvm::errs() << "layer_func (" << unique_layer_name << ") after opt  = " << *m_layer_func << "\n";
+#endif
 
     inst()->llvm_version = m_layer_func;
 
@@ -2412,7 +2416,7 @@ ShadingSystemImpl::SetupLLVM ()
     info ("Building an Execution Engine");
     std::string error_msg;
     m_llvm_exec = llvm::ExecutionEngine::create(m_llvm_module,
-                                                false,
+                                                false /* force interpreter */,
                                                 &error_msg,
                                                 llvm::CodeGenOpt::Default,
                                                 false);
