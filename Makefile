@@ -37,6 +37,10 @@ ifneq (${USE_TBB},)
 MY_CMAKE_FLAGS += -DUSE_TBB:BOOL=${USE_TBB}
 endif
 
+ifneq (${USE_LLVM},)
+MY_CMAKE_FLAGS += -DUSE_LLVM:BOOL=${USE_LLVM}
+endif
+
 ifneq (${NAMESPACE},)
 MY_CMAKE_FLAGS += -DOSL_NAMESPACE:STRING=${NAMESPACE}
 endif
@@ -176,5 +180,6 @@ help:
 	@echo "  make VERBOSE=1 ...          Show all compilation commands"
 	@echo "  make MYCC=xx MYCXX=yy ...   Use custom compilers"
 	@echo "  make USE_TBB=0 ...          Don't use TBB"
+	@echo "  make USE_LLVM=[0|1] ...     Use/don't use LLVM"
 	@echo "  make NAMESPACE=name         Wrap everything in another namespace"
 	@echo ""
