@@ -44,6 +44,12 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
     EXEC_PROGRAM ( llvm-config ARGS --cxxflags OUTPUT_VARIABLE LLVM_COMPILE_FLAGS )
     set (LLVM_COMPILE_FLAGS "${LLVM_COMPILE_FLAGS} -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -g3 --combine")
     set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS" )
+    if (OSL_NAMESPACE)
+        LIST (APPEND LLVM_COMPILE_FLAGS "-DOSL_NAMESPACE=${OSL_NAMESPACE}")
+    endif ()
+    if (OPENIMAGEIO_NAMESPACE)
+        LIST (APPEND LLVM_COMPILE_FLAGS "-DOPENIMAGEIO_NAMESPACE=${OPENIMAGEIO_NAMESPACE}")
+    endif ()
 
     # Command to turn the .cpp file into LLVM assembly language .s, into
     # LLVM bitcode .bc, then back into a C++ file with the bc embedded!
