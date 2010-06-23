@@ -1574,7 +1574,7 @@ RuntimeOptimizer::find_basic_blocks (bool do_llvm)
     // Init ops start basic blocks
     BOOST_FOREACH (const Symbol &s, symbols) {
         if ((s.symtype() == SymTypeParam || s.symtype() == SymTypeOutputParam) &&
-                s.initbegin() >= 0)
+                s.has_init_ops())
             block_begin[s.initbegin()] = true;
     }
 

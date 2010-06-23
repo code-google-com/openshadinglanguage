@@ -244,7 +244,7 @@ public:
     typedef std::map<std::string, llvm::AllocaInst*> AllocationMap;
     typedef std::vector<llvm::BasicBlock*> BasicBlockMap;
 
-    void llvm_assign_initial_constant (const Symbol& sym);
+    void llvm_assign_initial_value (const Symbol& sym);
     llvm::LLVMContext &llvm_context () const { return *m_llvm_context; }
     llvm::Module *llvm_module () const { return m_llvm_module; }
     AllocationMap &named_values () { return m_named_values; }
@@ -359,6 +359,20 @@ public:
         return llvm_void_ptr (llvm_get_pointer(sym, deriv));
     }
 
+    /// Return the LLVM type handle for a pointer to the common group
+    /// data that holds all the shader params.
+    const llvm::StructType *llvm_type_groupdata ();
+
+    /// Return the SingleShaderGlobals pointer.
+    ///
+    llvm::Value *groupdata_ptr () const { return m_llvm_groupdata_ptr; }
+
+    /// Return the group data pointer cast as a void*.
+    ///
+    llvm::Value *groupdata_void_ptr () {
+        return llvm_void_ptr (m_llvm_groupdata_ptr);
+    }
+
     /// Return an llvm::Value holding the given floating point constant.
     ///
     llvm::Value *llvm_constant (float f);
@@ -376,9 +390,7 @@ public:
 
     /// Generate LLVM code to zero out the derivatives of sym.
     ///
-    void llvm_zero_derivs (Symbol &sym);
-
-    llvm::Value *sym_to_llvmval (Symbol &sym);
+    void llvm_zero_derivs (const Symbol &sym);
 
     /// Generate code for a call to the named function with the given arg
     /// list.  Return an llvm::Value* corresponding to the return value of
@@ -448,8 +460,10 @@ private:
     llvm::Module *m_llvm_module;
     AllocationMap m_named_values;
     BasicBlockMap m_bb_map;
+    std::map<ustring,int> m_param_order_map;
     llvm::IRBuilder<> *m_builder;
     llvm::Value *m_llvm_shaderglobals_ptr;
+    llvm::Value *m_llvm_groupdata_ptr;
     llvm::Function *m_layer_func;     ///< Current layer func we're building
     const llvm::Type *m_llvm_type_float;
     const llvm::Type *m_llvm_type_int;
