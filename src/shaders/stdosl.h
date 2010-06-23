@@ -122,17 +122,6 @@ vector clamp (vector x, vector a, vector b) { return min(max(x,a),b); }
 color clamp (color x, color a, color b) { return min(max(x,a),b); }
 color clamp (color x, color a, color b) { return min(max(x,a),b); }
 
-#if 0
-// Smoothstep
-float smoothstep (float a, float b, float x) {
-    float hermite (float a, float b, float x) {
-        float t = (a==b) ? a : (x-a)/(b-a);
-        return (3-2*t)*(t*t);
-    }
-    return (x < a) ? a : ( (x > b) ? b : hermite(a,b,x) );
-}
-#endif
-
 // Step
 float step (float edge, float x) {
     return (x>=edge);

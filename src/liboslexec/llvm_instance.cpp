@@ -2273,7 +2273,7 @@ initialize_llvm_generator_table ()
     INIT2 (sin, llvm_gen_generic);
     // INIT (sincos);
     INIT2 (sinh, llvm_gen_generic);
-    // INIT (smoothstep);
+    INIT2 (smoothstep, llvm_gen_generic);
     // INIT (snoise);
     // INIT (spline);
     INIT2 (sqrt, llvm_gen_generic);
