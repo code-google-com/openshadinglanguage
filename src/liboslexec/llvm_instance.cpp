@@ -84,9 +84,8 @@ Schematically, we want to create code that resembles the following:
         *y = sg->u * group->$param_2_bar;
     }
 
-    void $group_1 (SingleShaderGlobal *sg)
+    void $group_1 (SingleShaderGlobal *sg, GroupData_1 *group)
     {
-        GroupData_1 *group = alloca (sizeof(GroupData_1));
         group->layer_run[...] = 0;
         // Run just the unconditional layers
         $layer_1 (sg, group);
@@ -228,11 +227,14 @@ RuntimeOptimizer::llvm_type_groupdata ()
 
     // First, add the array that tells if each layer has run
     fields.push_back (llvm::ArrayType::get(llvm_type_int(), m_group.nlayers()));
+    size_t offset = m_group.nlayers() * sizeof(int);
 
     // For each layer in the group, add entries for all params that are
     // connected or interpolated, and output params.  Also mark those
     // symbols with their offset within the group struct.
+#ifdef DEBUG
     std::cerr << "Group param struct:\n";
+#endif
     m_param_order_map.clear ();
     for (int m_layer = 0;  m_layer < m_group.nlayers();  ++m_layer) {
         m_inst = m_group[m_layer];
@@ -245,17 +247,26 @@ RuntimeOptimizer::llvm_type_groupdata ()
                 int n = arraylen * (sym.has_derivs() ? 3 : 1);
                 ts.make_array (n);
                 fields.push_back (llvm_type (ts));
+
+                // Alignment
+                static const size_t alignment = sizeof(char *);
+                if (sym.size() & (alignment-1))
+                    offset += alignment - (sym.size() & (alignment-1));
+#ifdef DEBUG
                 std::cerr << "  " << inst()->layername() << " " << sym.mangled()
-                          << " " << ts.c_str() << "\n";
+                          << " " << ts.c_str() << ", offset " << offset << "\n";
+#endif
+                sym.dataoffset ((int)offset);
+                offset += n * int(sym.size());
+
                 m_param_order_map[mangled_param_name(sym, inst())] = order;
                 ++order;
             }
         }
     }
+    m_group.llvm_groupdata_size (offset);
 
-    llvm::StructType *st = llvm::StructType::get (llvm_context(), fields); 
-    llvm::errs() << "\nGroup struct = " << *st << "\n";
-    return st;
+    return llvm::StructType::get (llvm_context(), fields); 
 }
 
 
@@ -2317,13 +2328,18 @@ RuntimeOptimizer::build_llvm_version ()
     const llvm::Type *sg_ptr_type = llvm::PointerType::get (sg_type, 0);
 
     const llvm::Type *groupdata_type = llvm_type_groupdata ();
-//    const llvm::Type *groupdata_ptr_type = llvm::PointerType::get (groupdata_type, 0);
+    const llvm::Type *groupdata_ptr_type = llvm::PointerType::get (groupdata_type, 0);
+#ifdef DEBUG
+    llvm::errs() << "\nGroup struct = " << *groupdata_type
+                 << "\n  size = " << m_group.llvm_groupdata_size() << "\n";
+#endif
 
-    m_layer_func = llvm::cast<llvm::Function>(all_ops->getOrInsertFunction(unique_layer_name, llvm_type_void(), sg_ptr_type, NULL));
+    m_layer_func = llvm::cast<llvm::Function>(all_ops->getOrInsertFunction(unique_layer_name, llvm_type_void(), sg_ptr_type, groupdata_ptr_type, NULL));
     const OpcodeVec& instance_ops (inst()->ops());
     llvm::Function::arg_iterator arg_it = m_layer_func->arg_begin();
     // Get shader globals pointer
     m_llvm_shaderglobals_ptr = arg_it++;
+    m_llvm_groupdata_ptr = arg_it++;
 
     llvm::BasicBlock* entry_bb = llvm::BasicBlock::Create (llvm_context(), "EntryBlock", m_layer_func);
 
@@ -2332,8 +2348,8 @@ RuntimeOptimizer::build_llvm_version ()
     m_builder = new llvm::IRBuilder<> (entry_bb);
 
     // Allocate the group data
-    m_llvm_groupdata_ptr = builder().CreateAlloca (groupdata_type,
-                                               llvm_constant(1), "$groupdata");
+//    m_llvm_groupdata_ptr = builder().CreateAlloca (groupdata_type,
+//                                               llvm_constant(1), "$groupdata");
 
     // Setup the symbols
     BOOST_FOREACH (Symbol &s, inst()->symbols()) {

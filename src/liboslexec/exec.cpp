@@ -545,7 +545,7 @@ ShadingExecution::run (Runflag *runflags, int *indices, int nindices, int begino
         ShaderGroup &sgroup (context()->attribs()->shadergroup (shaderuse()));
         ShaderInstance *shader = sgroup[layer()];
 
-        typedef void (*RunLayerFunc)(SingleShaderGlobal*); 
+        typedef void (*RunLayerFunc)(SingleShaderGlobal*, void*); 
         //printf("About to run the LLVM Version of layer '%s' (pointer = %p)!\n", shader->layername().c_str(), shader);
         llvm::ExecutionEngine* ee = shadingsys()->ExecutionEngine();
         RunLayerFunc run_func = reinterpret_cast<RunLayerFunc>(ee->getPointerToFunction(shader->LLVMVersion()));
@@ -554,6 +554,8 @@ ShadingExecution::run (Runflag *runflags, int *indices, int nindices, int begino
         // Ignore runflags for now
         ShaderGlobals& sg = *(context()->globals());
         m_npoints = m_context->npoints ();
+        size_t groupdata_size = sgroup.llvm_groupdata_size();
+        context()->m_heap.resize (groupdata_size * m_npoints);
         for (int i = 0; i < m_npoints; i++) {
             my_sg.P = sg.P[i];
             my_sg.dPdx = sg.dPdx[i];
@@ -587,7 +589,7 @@ ShadingExecution::run (Runflag *runflags, int *indices, int nindices, int begino
             my_sg.isshadowray = sg.isshadowray;
             my_sg.flipHandedness = sg.flipHandedness;
 
-            run_func (&my_sg);
+            run_func (&my_sg, &context()->m_heap[groupdata_size*i]);
         }
         return;
     }

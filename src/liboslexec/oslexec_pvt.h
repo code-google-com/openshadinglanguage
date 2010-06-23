@@ -435,8 +435,12 @@ public:
 
     bool optimized () const { return m_optimized; }
 
+    size_t llvm_groupdata_size () const { return m_llvm_groupdata_size; }
+    void llvm_groupdata_size (size_t size) { m_llvm_groupdata_size = size; }
+
 private:
     std::vector<ShaderInstanceRef> m_layers;
+    size_t m_llvm_groupdata_size;
     volatile bool m_optimized;       ///< Is it already optimized?
     mutex m_mutex;                   ///< Thread-safe optimization
     friend class ShadingSystemImpl;
