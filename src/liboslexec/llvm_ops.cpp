@@ -557,6 +557,52 @@ extern "C" float osl_smoothstep_dfdfdfdf(void *result, void* e0_, void* e1_, voi
 
 
 
+// point = M * point
+extern "C" float osl_transform_vmv(void *result, void* M_, void* v_)
+{
+   Vec3 v = VEC(v_);
+   Matrix44 M = MAT(M_);
+   M.multVecMatrix (v, VEC(result));
+}
+
+extern "C" float osl_transform_dvmdv(void *result, void* M_, void* v_)
+{
+   Dual2<Vec3> v = DVEC(v_);
+   Matrix44    M = MAT(M_);
+   multVecMatrix (M, v, DVEC(result));
+}
+
+// vector = M * vector
+extern "C" float osl_transformv_vmv(void *result, void* M_, void* v_)
+{
+   Vec3 v = VEC(v_);
+   Matrix44 M = MAT(M_);
+   M.multDirMatrix (v, VEC(result));
+}
+
+extern "C" float osl_transformv_dvmdv(void *result, void* M_, void* v_)
+{
+   Dual2<Vec3> v = DVEC(v_);
+   Matrix44    M = MAT(M_);
+   multDirMatrix (M, v, DVEC(result));
+}
+
+// normal = M * normal
+extern "C" float osl_transformn_vmv(void *result, void* M_, void* v_)
+{
+   Vec3 v = VEC(v_);
+   Matrix44 M = MAT(M_);
+   M.inverse().transpose().multDirMatrix (v, VEC(result));
+}
+
+extern "C" float osl_transformn_dvmdv(void *result, void* M_, void* v_)
+{
+   Dual2<Vec3> v = DVEC(v_);
+   Matrix44    M = MAT(M_);
+   multDirMatrix (M.inverse().transpose(), v, DVEC(result));
+}
+
+
 
 // Closure functions
 

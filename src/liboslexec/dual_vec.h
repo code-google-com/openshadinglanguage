@@ -65,6 +65,36 @@ make_Vec3 (Dual2<float> &x, Dual2<float> &y, Dual2<float> &z)
 
 
 
+/// Multiply a matrix times a vector with derivatives to obtain
+/// a transformed vector with derivatives.
+inline void
+multVecMatrix (const Matrix44 &M, Dual2<Vec3> &in, Dual2<Vec3> &out)
+{
+    // Rearrange into a Vec3<Dual2<float> >
+    Imath::Vec3<Dual2<float> > din, dout;
+    for (int i = 0;  i < 3;  ++i)
+        din[i].set (in.val()[i], in.dx()[i], in.dy()[i]);
+
+    // N.B. the following function has a divide by 'w'
+    M.multVecMatrix (din, dout);
+
+    // Rearrange back into Dual2<Vec3>
+    out.set (Vec3 (dout[0].val(), dout[1].val(), dout[2].val()),
+             Vec3 (dout[0].dx(),  dout[1].dx(),  dout[2].dx()),
+             Vec3 (dout[0].dy(),  dout[1].dy(),  dout[2].dy()));
+}
+
+/// Multiply a matrix times a direction with derivatives to obtain
+/// a transformed direction with derivatives.
+inline void
+multDirMatrix (const Matrix44 &M, Dual2<Vec3> &in, Dual2<Vec3> &out)
+{
+    M.multDirMatrix (in.val(), out.val());
+    M.multDirMatrix (in.dx(), out.dx());
+    M.multDirMatrix (in.dy(), out.dy());
+}
+
+
 
 /// Templated trick to be able to derive what type we use to represent
 /// a color, given a scalar, automatically using the right kind of Dual2.

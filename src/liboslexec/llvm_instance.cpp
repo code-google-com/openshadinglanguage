@@ -2001,7 +2001,7 @@ LLVMGEN (llvm_gen_generic)
     for (int i = 0;  i < op.nargs();  ++i) {
         Symbol *s (rop.opargsym (op, i));
         args.push_back (s);
-        any_deriv_args |= (i > 0 && s->has_derivs());
+        any_deriv_args |= (i > 0 && s->has_derivs() && !s->typespec().is_matrix());
     }
 
     // Special cases: functions that have no derivs -- suppress them
@@ -2014,7 +2014,7 @@ LLVMGEN (llvm_gen_generic)
     std::string name = std::string("osl_") + op.opname().string() + "_";
     for (int i = 0;  i < op.nargs();  ++i) {
         Symbol *s (rop.opargsym (op, i));
-        if (any_deriv_args && Result.has_derivs() && s->has_derivs())
+        if (any_deriv_args && Result.has_derivs() && s->has_derivs() && !s->typespec().is_matrix())
             name += "d";
         if (s->typespec().is_float())
             name += "f";
@@ -2316,9 +2316,9 @@ initialize_llvm_generator_table ()
     INIT2 (tan, llvm_gen_generic);
     INIT2 (tanh, llvm_gen_generic);
     // INIT (texture);
-    // INIT (transform);
-    // INIT (transformn);
-    // INIT (transformv);
+    INIT2 (transform,  llvm_gen_generic);
+    INIT2 (transformn, llvm_gen_generic);
+    INIT2 (transformv, llvm_gen_generic);
     // INIT (translucent);
     // INIT (transparent);
     INIT2 (transpose, llvm_gen_generic);
