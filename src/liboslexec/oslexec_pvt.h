@@ -370,8 +370,6 @@ public:
     ///
     void make_symbol_room (size_t moresyms=1);
 
-    llvm::Function* LLVMVersion() { return llvm_version; }
-
 private:
     bool heap_size_calculated () const { return m_heap_size_calculated; }
     void calc_heap_size ();
@@ -396,7 +394,6 @@ private:
     int m_firstparam, m_lastparam;      ///< Subset of symbols that are params
     int m_maincodebegin, m_maincodeend; ///< Main shader code range
     int m_Psym, m_Nsym;                 ///< Quick lookups of common syms
-    llvm::Function* llvm_version;
 
     friend class ShadingExecution;
     friend class ShadingSystemImpl;
@@ -438,8 +435,16 @@ public:
     size_t llvm_groupdata_size () const { return m_llvm_groupdata_size; }
     void llvm_groupdata_size (size_t size) { m_llvm_groupdata_size = size; }
 
+    llvm::Function* llvm_compiled_version() const {
+        return m_llvm_compiled_version;
+    }
+    void llvm_compiled_version (llvm::Function *func) {
+        m_llvm_compiled_version = func;
+    }
+
 private:
     std::vector<ShaderInstanceRef> m_layers;
+    llvm::Function* m_llvm_compiled_version;
     size_t m_llvm_groupdata_size;
     volatile bool m_optimized;       ///< Is it already optimized?
     mutex m_mutex;                   ///< Thread-safe optimization
@@ -713,6 +718,13 @@ public:
     /// runflags are not supplied, they will be auto-generated with all
     /// points turned on.
     void execute (ShaderUse use, Runflag *rf=NULL, int *ind=NULL, int nind=0);
+
+    /// Execute the llvm-compiled shaders for the given use (for example,
+    /// ShadUseSurface).  The context must already be bound.  If
+    /// runflags are not supplied, they will be auto-generated with all
+    /// points turned on.
+    void execute_llvm (ShaderUse use, Runflag *rf=NULL,
+                       int *ind=NULL, int nind=0);
 
     /// Return the current shader use being executed.
     ///

@@ -42,7 +42,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "dual.h"
 #include "oslops.h"
 
-#include "llvm_headers.h"
 
 #ifdef OSL_NAMESPACE
 namespace OSL_NAMESPACE {
@@ -540,58 +539,7 @@ ShadingExecution::run (Runflag *runflags, int *indices, int nindices, int begino
     bool run_llvm = context()->shadingsys().use_llvm();
     if (run_llvm && beginop < 0 &&
         context()->attribs()->shadergroup (shaderuse())[layer()]) {
-        m_shadingsys = &m_context->shadingsys ();
-        m_debug = shadingsys()->debug();
-        ShaderGroup &sgroup (context()->attribs()->shadergroup (shaderuse()));
-        ShaderInstance *shader = sgroup[layer()];
-
-        typedef void (*RunLayerFunc)(SingleShaderGlobal*, void*); 
-        //printf("About to run the LLVM Version of layer '%s' (pointer = %p)!\n", shader->layername().c_str(), shader);
-        llvm::ExecutionEngine* ee = shadingsys()->ExecutionEngine();
-        RunLayerFunc run_func = reinterpret_cast<RunLayerFunc>(ee->getPointerToFunction(shader->LLVMVersion()));
-
-        SingleShaderGlobal my_sg;
-        // Ignore runflags for now
-        ShaderGlobals& sg = *(context()->globals());
-        m_npoints = m_context->npoints ();
-        size_t groupdata_size = sgroup.llvm_groupdata_size();
-        context()->m_heap.resize (groupdata_size * m_npoints);
-        for (int i = 0; i < m_npoints; i++) {
-            my_sg.P = sg.P[i];
-            my_sg.dPdx = sg.dPdx[i];
-            my_sg.dPdy = sg.dPdy[i];
-            my_sg.I = sg.I[i];
-            my_sg.dIdx = sg.dIdx[i];
-            my_sg.dIdy = sg.dIdy[i];
-            my_sg.N = sg.N[i];
-            my_sg.Ng = sg.Ng[i];
-            my_sg.u = sg.u[i];
-            my_sg.v = sg.v[i];
-            my_sg.dudx = sg.dudx[i];
-            my_sg.dudy = sg.dudy[i];
-            my_sg.dvdx = sg.dvdx[i];
-            my_sg.dvdy = sg.dvdy[i];
-            my_sg.dPdu = sg.dPdu[i];
-            my_sg.dPdv = sg.dPdv[i];
-            my_sg.time = sg.time[i];
-            my_sg.dtime = sg.dtime[i];
-            my_sg.dPdtime = sg.dPdtime[i];
-            my_sg.Ps = sg.Ps[i];
-            my_sg.dPsdx = sg.dPsdx[i];
-            my_sg.dPsdy = sg.dPsdy[i];
-            my_sg.renderstate = sg.renderstate[i];
-            my_sg.context = context();
-            my_sg.object2common = sg.object2common[i];
-            my_sg.shader2common = sg.shader2common[i];
-            my_sg.Ci = sg.Ci[i];
-            my_sg.surfacearea = sg.surfacearea[i];
-            my_sg.iscameraray = sg.iscameraray;
-            my_sg.isshadowray = sg.isshadowray;
-            my_sg.flipHandedness = sg.flipHandedness;
-
-            run_func (&my_sg, &context()->m_heap[groupdata_size*i]);
-        }
-        return;
+        ASSERT (0);
     }
 #endif
 
@@ -648,12 +596,12 @@ ShadingExecution::run (int beginop, int endop)
     const int *args = &(instance()->args()[0]);
     bool debugnan = m_shadingsys->debug_nan ();
     OpcodeVec &code (m_instance->ops());
-
     int instructions_run = 0;
     for (m_ip = beginop; m_ip < endop && m_runstate.beginpoint < m_runstate.endpoint;  ++m_ip) {
         ++instructions_run;
         DASSERT (m_ip >= 0 && m_ip < (int)instance()->ops().size());
         Opcode &op (code[m_ip]);
+
 #if 0
         // Debugging tool -- sample the run flags
         static atomic_ll count;

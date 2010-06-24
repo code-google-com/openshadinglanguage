@@ -53,7 +53,8 @@ public:
         : m_shadingsys(shadingsys), m_group(group),
           m_inst(NULL), m_next_newconst(0)
 #if USE_LLVM
-        , m_llvm_context(NULL), m_llvm_module(NULL), m_builder(NULL)
+        , m_llvm_context(NULL), m_llvm_module(NULL), m_builder(NULL),
+          m_llvm_passes(NULL), m_llvm_func_passes(NULL)
 #endif
     {
     }
@@ -61,6 +62,8 @@ public:
     ~RuntimeOptimizer () {
 #if USE_LLVM
         delete m_builder;
+        delete m_llvm_passes;
+        delete m_llvm_func_passes;
 #endif
     }
 
@@ -232,15 +235,19 @@ public:
         return inst()->argsymbol (op.firstarg()+argnum);
     }
 
-    /// Create an llvm function for the current shader instance, JIT it,
-    /// and return the llvm::Function* handle to it.
-    llvm::Function* build_llvm_version ();
-
-    /// Set up a bunch of static things we'll need.
-    ///
-    void initialize_llvm_stuff ();
+    /// Create an llvm function for the whole shader group, JIT it,
+    /// and store the llvm::Function* handle to it with the ShaderGroup.
+    void build_llvm_group ();
 
 #if USE_LLVM
+    /// Set up a bunch of static things we'll need for the whole group.
+    ///
+    void initialize_llvm_group ();
+
+    /// Create an llvm function for the current shader instance.
+    /// This will end up being the group entry if 'groupentry' is true.
+    llvm::Function* build_llvm_instance (bool groupentry);
+
     typedef std::map<std::string, llvm::AllocaInst*> AllocationMap;
     typedef std::vector<llvm::BasicBlock*> BasicBlockMap;
 
@@ -322,7 +329,7 @@ public:
     /// than its value.
     llvm::Value *LoadParam (const Symbol& sym, int component, int deriv,
                             float* fdata, int* idata, ustring* sdata);
-    llvm::Value *getOrAllocateLLVMSymbol (const Symbol& sym, llvm::Function* f);
+    llvm::Value *getOrAllocateLLVMSymbol (const Symbol& sym);
     llvm::Value *getLLVMSymbolBase (const Symbol &sym);
 
     /// Generate the LLVM IR code to convert fval from a float to
@@ -335,7 +342,11 @@ public:
 
     /// Return the LLVM type handle for the SingleShaderGlobals struct.
     ///
-    const llvm::StructType *getShaderGlobalType ();
+    const llvm::Type *llvm_type_sg ();
+
+    /// Return the LLVM type handle for a pointer to a
+    /// SingleShaderGlobals struct.
+    const llvm::Type *llvm_type_sg_ptr ();
 
     /// Return the SingleShaderGlobals pointer.
     ///
@@ -359,9 +370,13 @@ public:
         return llvm_void_ptr (llvm_get_pointer(sym, deriv));
     }
 
+    /// Return the LLVM type handle for a structure of the common group
+    /// data that holds all the shader params.
+    const llvm::Type *llvm_type_groupdata ();
+
     /// Return the LLVM type handle for a pointer to the common group
     /// data that holds all the shader params.
-    const llvm::StructType *llvm_type_groupdata ();
+    const llvm::Type *llvm_type_groupdata_ptr ();
 
     /// Return the SingleShaderGlobals pointer.
     ///
@@ -435,7 +450,13 @@ public:
     const llvm::PointerType *llvm_type_triple_ptr() { return m_llvm_type_triple_ptr; }
     const llvm::PointerType *llvm_type_matrix_ptr() { return m_llvm_type_matrix_ptr; }
 
-    void llvm_do_optimization ();
+    void llvm_setup_optimization_passes ();
+
+    /// Do LLVM optimization, either on the partcular function func, if
+    /// specified, or on all the functions in the module (if func==NULL).
+    /// If interproc is true, also do full interprocedural optimization.
+    void llvm_do_optimization (llvm::Function *func=NULL,
+                               bool interproc=false);
 #endif
 
 private:
@@ -475,6 +496,10 @@ private:
     const llvm::PointerType *m_llvm_type_float_ptr;
     const llvm::PointerType *m_llvm_type_triple_ptr;
     const llvm::PointerType *m_llvm_type_matrix_ptr;
+    const llvm::Type *m_llvm_type_sg;  // LLVM type of SingleShaderGlobal struct
+    const llvm::Type *m_llvm_type_groupdata;  // LLVM type of group data
+    llvm::PassManager *m_llvm_passes;
+    llvm::FunctionPassManager *m_llvm_func_passes;
 #endif
 
     // Persistant data shared between layers

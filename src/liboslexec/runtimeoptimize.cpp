@@ -75,10 +75,6 @@ RuntimeOptimizer::set_inst (int newlayer)
     m_all_consts.clear ();
     m_symbol_aliases.clear ();
     m_block_aliases.clear ();
-#if USE_LLVM
-    m_llvm_context = m_shadingsys.llvm_context ();
-    m_llvm_module = m_shadingsys.m_llvm_module;
-#endif
 }
 
 
@@ -2687,10 +2683,8 @@ RuntimeOptimizer::optimize_group ()
         lock_guard llvm_lock (llvm_mutex);
         
         m_shadingsys.SetupLLVM ();
-        for (int layer = 0;  layer < nlayers;  ++layer) {
-            set_inst (layer);
-            build_llvm_version ();
-        }
+        build_llvm_group ();
+
         double llvm_time = timer();
         {
             spin_lock statlock (m_shadingsys.m_stat_mutex);

@@ -173,9 +173,12 @@ static const char *llvm_helper_function_table[] = {
 
 
 
-const llvm::StructType *
-RuntimeOptimizer::getShaderGlobalType ()
+const llvm::Type *
+RuntimeOptimizer::llvm_type_sg ()
 {
+    if (m_llvm_type_sg)
+        return m_llvm_type_sg;
+
     // Derivs look like arrays of 3 values
     const llvm::Type *float_deriv = llvm_type (TypeDesc(TypeDesc::FLOAT, TypeDesc::SCALAR, 3));
     const llvm::Type *triple_deriv = llvm_type (TypeDesc(TypeDesc::FLOAT, TypeDesc::VEC3, 3));
@@ -204,7 +207,15 @@ RuntimeOptimizer::getShaderGlobalType ()
     sg_types.push_back (llvm_type_int());     // isshadowray
     sg_types.push_back (llvm_type_int());     // flipHandedness
 
-    return llvm::StructType::get (llvm_context(), sg_types);
+    return m_llvm_type_sg = llvm::StructType::get (llvm_context(), sg_types);
+}
+
+
+
+const llvm::Type *
+RuntimeOptimizer::llvm_type_sg_ptr ()
+{
+    return llvm::PointerType::get (llvm_type_sg(), 0);
 }
 
 
@@ -220,9 +231,13 @@ mangled_param_name (const Symbol &param, ShaderInstance *inst)
 
 
 
-const llvm::StructType *
+const llvm::Type *
 RuntimeOptimizer::llvm_type_groupdata ()
 {
+    // If already computed, return it
+    if (m_llvm_type_groupdata)
+        return m_llvm_type_groupdata;
+
     std::vector<const llvm::Type*> fields;
 
     // First, add the array that tells if each layer has run
@@ -266,7 +281,22 @@ RuntimeOptimizer::llvm_type_groupdata ()
     }
     m_group.llvm_groupdata_size (offset);
 
-    return llvm::StructType::get (llvm_context(), fields); 
+    m_llvm_type_groupdata = llvm::StructType::get (llvm_context(), fields);
+
+#ifdef DEBUG
+    llvm::errs() << "\nGroup struct = " << *m_llvm_type_groupdata << "\n";
+    llvm::errs() << "  size = " << offset << "\n";
+#endif
+
+    return m_llvm_type_groupdata;
+}
+
+
+
+const llvm::Type *
+RuntimeOptimizer::llvm_type_groupdata_ptr ()
+{
+    return llvm::PointerType::get (llvm_type_groupdata(), 0);
 }
 
 
@@ -445,8 +475,7 @@ RuntimeOptimizer::getLLVMSymbolBase (const Symbol &sym)
 
 
 llvm::Value *
-RuntimeOptimizer::getOrAllocateLLVMSymbol (const Symbol& sym,
-                                           llvm::Function* f)
+RuntimeOptimizer::getOrAllocateLLVMSymbol (const Symbol& sym)
 {
     Symbol* dealiased = sym.dealias();
     std::string mangled_name = dealiased->mangled();
@@ -2312,29 +2341,15 @@ initialize_llvm_generator_table ()
 
 
 llvm::Function*
-RuntimeOptimizer::build_llvm_version ()
+RuntimeOptimizer::build_llvm_instance (bool groupentry)
 {
-    initialize_llvm_stuff ();   // setup
+    // Make a layer function: void layer_func(ShaderGlobal*, GroupData*)
+    // Note that the GroupData* is passed as a void*.
+    std::string unique_layer_name = Strutil::format ("%s_%d", inst()->layername().c_str(), inst()->id());
 
-    llvm::Module *all_ops (m_llvm_module);
-    m_named_values.clear ();
-
-    // Make a layer function: void layer_func(ShaderGlobal*, ShadingContext*)
-    // Note that the ShadingContext* is passed as a void*.
-    char unique_layer_name[1024];
-    sprintf (unique_layer_name, "%s_%d", inst()->layername().c_str(), inst()->id());
-
-    const llvm::Type *sg_type = getShaderGlobalType ();
-    const llvm::Type *sg_ptr_type = llvm::PointerType::get (sg_type, 0);
-
-    const llvm::Type *groupdata_type = llvm_type_groupdata ();
-    const llvm::Type *groupdata_ptr_type = llvm::PointerType::get (groupdata_type, 0);
-#ifdef DEBUG
-    llvm::errs() << "\nGroup struct = " << *groupdata_type
-                 << "\n  size = " << m_group.llvm_groupdata_size() << "\n";
-#endif
-
-    m_layer_func = llvm::cast<llvm::Function>(all_ops->getOrInsertFunction(unique_layer_name, llvm_type_void(), sg_ptr_type, groupdata_ptr_type, NULL));
+    m_layer_func = llvm::cast<llvm::Function>(m_llvm_module->getOrInsertFunction(unique_layer_name,
+                    llvm_type_void(), llvm_type_sg_ptr(),
+                    llvm_type_groupdata_ptr(), NULL));
     const OpcodeVec& instance_ops (inst()->ops());
     llvm::Function::arg_iterator arg_it = m_layer_func->arg_begin();
     // Get shader globals pointer
@@ -2352,11 +2367,12 @@ RuntimeOptimizer::build_llvm_version ()
 //                                               llvm_constant(1), "$groupdata");
 
     // Setup the symbols
+    m_named_values.clear ();
     BOOST_FOREACH (Symbol &s, inst()->symbols()) {
         // Make space for local, temp, const
         if (s.symtype() == SymTypeLocal || s.symtype() == SymTypeTemp ||
                 s.symtype() == SymTypeConst)
-            getOrAllocateLLVMSymbol (s, m_layer_func);
+            getOrAllocateLLVMSymbol (s);
         // Set initial value for params and constants
         if (s.symtype() == SymTypeParam || s.symtype() == SymTypeOutputParam ||
                 s.is_constant())
@@ -2411,15 +2427,6 @@ RuntimeOptimizer::build_llvm_version ()
     llvm::errs() << "layer_func (" << unique_layer_name << ") after llvm  = " << *m_layer_func << "\n";
 #endif
 
-    // Now optimize the result
-    llvm_do_optimization ();
-
-#ifdef DEBUG
-    llvm::errs() << "layer_func (" << unique_layer_name << ") after opt  = " << *m_layer_func << "\n";
-#endif
-
-    inst()->llvm_version = m_layer_func;
-
     delete m_builder;
     m_builder = NULL;
 
@@ -2429,8 +2436,49 @@ RuntimeOptimizer::build_llvm_version ()
 
 
 void
-RuntimeOptimizer::initialize_llvm_stuff ()
+RuntimeOptimizer::build_llvm_group ()
 {
+    initialize_llvm_group ();
+
+    llvm::Function *func = NULL;
+    int nlayers = m_group.nlayers();
+    for (int layer = 0;  layer < nlayers;  ++layer) {
+        set_inst (layer);
+        func = build_llvm_instance (layer == (nlayers-1));
+        llvm_do_optimization (func, layer == (nlayers-1));
+    }
+
+#ifdef DEBUG
+//    llvm::errs() << "layer_func (" << unique_layer_name << ") after opt  = " << *m_layer_func << "\n";
+    llvm::errs() << "group_func after opt  = " << *m_layer_func << "\n";
+#endif
+
+    m_group.llvm_compiled_version (m_layer_func);
+}
+
+
+
+void
+RuntimeOptimizer::initialize_llvm_group ()
+{
+    m_llvm_context = m_shadingsys.llvm_context ();
+    m_llvm_module = m_shadingsys.m_llvm_module;
+    ASSERT (m_llvm_context && m_llvm_module);
+
+    llvm_setup_optimization_passes ();
+
+    // Clear the shaderglobals and groupdata types -- they will be
+    // created on demand.
+    m_llvm_type_sg = NULL;
+    m_llvm_type_groupdata = NULL;
+
+    // Now we have things we only need to do once for each context.
+    static spin_mutex mutex;
+    static llvm::LLVMContext *initialized_context = NULL;
+    spin_lock lock (mutex);
+    if (initialized_context == m_llvm_context)
+        return;   // already initialized for this context
+
     // Set up aliases for types we use over and over
     m_llvm_type_float = llvm::Type::getFloatTy (*m_llvm_context);
     m_llvm_type_int = llvm::Type::getInt32Ty (*m_llvm_context);
@@ -2449,13 +2497,6 @@ RuntimeOptimizer::initialize_llvm_stuff ()
     std::vector<const llvm::Type*> matrixfields(1, float16);
     m_llvm_type_matrix = llvm::StructType::get(llvm_context(), matrixfields);
     m_llvm_type_matrix_ptr = llvm::PointerType::get (m_llvm_type_matrix, 0);
-
-    // Now we have things we only need to do once for each context.
-    static spin_mutex mutex;
-    static llvm::LLVMContext *initialized_context = NULL;
-    spin_lock lock (mutex);
-    if (initialized_context == m_llvm_context)
-        return;   // already initialized for this context
 
     m_shadingsys.info ("Adding in extern functions");
 
@@ -2530,22 +2571,21 @@ ShadingSystemImpl::SetupLLVM ()
 
 
 void
-RuntimeOptimizer::llvm_do_optimization ()
+RuntimeOptimizer::llvm_setup_optimization_passes ()
 {
-    llvm::PassManager passes;
-    passes.add (new llvm::TargetData(llvm_module()));
-    llvm::FunctionPassManager fpm (llvm_module());
-    fpm.add (new llvm::TargetData(llvm_module())); // *(m_shadingsys.ExecutionEngine()->getTargetData())));
-    // FIXME -- will this leak the TargetData?
+    ASSERT (m_llvm_passes == NULL && m_llvm_func_passes == NULL);
 
-    // Now change things to registers
+    // Specify per-function passes
+    //
+    m_llvm_func_passes = new llvm::FunctionPassManager(llvm_module());
+    llvm::FunctionPassManager &fpm (*m_llvm_func_passes);
+    fpm.add (new llvm::TargetData(llvm_module()));
+    // Change memory references to registers
     fpm.add (llvm::createPromoteMemoryToRegisterPass());
     // Combine instructions where possible -- peephole opts & bit-twiddling
     fpm.add (llvm::createInstructionCombiningPass());
     // Eliminate early returns
     fpm.add (llvm::createUnifyFunctionExitNodesPass());
-    // Inline small functions
-    passes.add (llvm::createFunctionInliningPass());
     // resassociate exprssions (a = x + (3 + y) -> a = x + y + 3)
     fpm.add (llvm::createReassociatePass());
     // Eliminate common sub-expressions
@@ -2559,20 +2599,50 @@ RuntimeOptimizer::llvm_do_optimization ()
     // Always add verifier?
     fpm.add (llvm::createVerifierPass());
 
-    fpm.doInitialization();
-
-    // Run function passes on all functions in the module.
-    for (llvm::Module::iterator i = llvm_module()->begin(); i != llvm_module()->end(); ++i)
-        fpm.run (*i);
-
-    // Run module-wide (interprocedural optimization) passes
+    // Specify module-wide (interprocedural optimization) passes
+    //
+    m_llvm_passes = new llvm::PassManager;
+    llvm::PassManager &passes (*m_llvm_passes);
+    passes.add (new llvm::TargetData(llvm_module()));
+    // Inline small functions
+    passes.add (llvm::createFunctionInliningPass());
     passes.add (llvm::createVerifierPass());
-    passes.run (*llvm_module());
+}
 
-    // Since the passes above inlined function calls, among other
-    // things, we should rerun our whole optimization set on the master
-    // function now.
-    fpm.run(*m_layer_func);
+
+
+void
+RuntimeOptimizer::llvm_do_optimization (llvm::Function *func,
+                                        bool interproc)
+{
+    ASSERT (m_llvm_passes != NULL && m_llvm_func_passes != NULL);
+
+    if (! func) {
+        // If no particular function is specified, run function passes
+        // on all functions in the module (just recursively call this
+        // function).
+        for (llvm::Module::iterator i = llvm_module()->begin();
+                 i != llvm_module()->end(); ++i)
+            llvm_do_optimization (&(*i));
+        return;
+    }
+
+    m_llvm_func_passes->doInitialization();
+    m_llvm_func_passes->run (*func);
+    m_llvm_func_passes->doFinalization();
+
+    if (interproc) {
+        // Run module-wide (interprocedural optimization) passes
+        m_llvm_passes->run (*llvm_module());
+
+        // Since the passes above inlined function calls, among other
+        // things, we should rerun our whole optimization set on the master
+        // function now.
+        ASSERT (func);
+        m_llvm_func_passes->doInitialization ();
+        m_llvm_func_passes->run (*func);
+        m_llvm_func_passes->doFinalization ();
+    }
 }
 
 
