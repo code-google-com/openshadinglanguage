@@ -81,9 +81,9 @@ public:
     ///
     void set_inst (int layer);
 
-    ShaderInstance *inst () { return m_inst; }
+    ShaderInstance *inst () const { return m_inst; }
 
-    ShaderGroup &group () { return m_group; }
+    ShaderGroup &group () const { return m_group; }
 
     ShadingSystemImpl &shadingsys () const { return m_shadingsys; }
 
@@ -324,11 +324,6 @@ public:
         return llvm_store_value (new_val, sym, deriv, component);
     }
 
-    /// Return the llvm::Value* corresponding to the symbol, which is a
-    /// shader global, and if 'ptr' is true return its address rather
-    /// than its value.
-    llvm::Value *LoadParam (const Symbol& sym, int component, int deriv,
-                            float* fdata, int* idata, ustring* sdata);
     llvm::Value *getOrAllocateLLVMSymbol (const Symbol& sym);
     llvm::Value *getLLVMSymbolBase (const Symbol &sym);
 
@@ -387,6 +382,10 @@ public:
     llvm::Value *groupdata_void_ptr () {
         return llvm_void_ptr (m_llvm_groupdata_ptr);
     }
+
+    /// Return a ref to where the "layer_run" flag is stored for the
+    /// named layer.
+    llvm::Value *layer_run_ptr (int layer);
 
     /// Return an llvm::Value holding the given floating point constant.
     ///
@@ -450,6 +449,8 @@ public:
     const llvm::PointerType *llvm_type_triple_ptr() { return m_llvm_type_triple_ptr; }
     const llvm::PointerType *llvm_type_matrix_ptr() { return m_llvm_type_matrix_ptr; }
 
+    llvm::Function *layer_func () const { return m_layer_func; }
+
     void llvm_setup_optimization_passes ();
 
     /// Do LLVM optimization, either on the partcular function func, if
@@ -481,7 +482,7 @@ private:
     llvm::Module *m_llvm_module;
     AllocationMap m_named_values;
     BasicBlockMap m_bb_map;
-    std::map<ustring,int> m_param_order_map;
+    std::map<std::string,int> m_param_order_map;
     llvm::IRBuilder<> *m_builder;
     llvm::Value *m_llvm_shaderglobals_ptr;
     llvm::Value *m_llvm_groupdata_ptr;

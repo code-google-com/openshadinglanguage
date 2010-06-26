@@ -220,12 +220,12 @@ RuntimeOptimizer::llvm_type_sg_ptr ()
 
 
 
-static ustring
+static std::string
 mangled_param_name (const Symbol &param, ShaderInstance *inst)
 {
     ASSERT (param.symtype() == SymTypeParam ||
             param.symtype() == SymTypeOutputParam);
-    return ustring::format ("$param_%s_%d", param.mangled().c_str(),
+    return Strutil::format ("$param_%s_%d", param.mangled().c_str(),
                             inst->id());
 }
 
@@ -251,10 +251,10 @@ RuntimeOptimizer::llvm_type_groupdata ()
     std::cerr << "Group param struct:\n";
 #endif
     m_param_order_map.clear ();
-    for (int m_layer = 0;  m_layer < m_group.nlayers();  ++m_layer) {
-        m_inst = m_group[m_layer];
+    for (int layer = 0;  layer < m_group.nlayers();  ++layer) {
+        ShaderInstance *inst = m_group[layer];
         int order = 1;
-        BOOST_FOREACH (Symbol &sym, inst()->symbols()) {
+        BOOST_FOREACH (Symbol &sym, inst->symbols()) {
             if (sym.symtype() == SymTypeParam ||
                   sym.symtype() == SymTypeOutputParam) {
                 TypeSpec ts = sym.typespec();
@@ -268,13 +268,13 @@ RuntimeOptimizer::llvm_type_groupdata ()
                 if (sym.size() & (alignment-1))
                     offset += alignment - (sym.size() & (alignment-1));
 #ifdef DEBUG
-                std::cerr << "  " << inst()->layername() << " " << sym.mangled()
+                std::cerr << "  " << inst->layername() << " " << sym.mangled()
                           << " " << ts.c_str() << ", offset " << offset << "\n";
 #endif
                 sym.dataoffset ((int)offset);
                 offset += n * int(sym.size());
 
-                m_param_order_map[mangled_param_name(sym, inst())] = order;
+                m_param_order_map[mangled_param_name(sym, inst)] = order;
                 ++order;
             }
         }
@@ -453,8 +453,7 @@ RuntimeOptimizer::getLLVMSymbolBase (const Symbol &sym)
 
     if (sym.symtype() == SymTypeParam || sym.symtype() == SymTypeOutputParam) {
         // Special case for params -- they live in the group data
-        ustring mangled = mangled_param_name (sym, inst());
-        int fieldnum = m_param_order_map[mangled];
+        int fieldnum = m_param_order_map[mangled_param_name (sym, inst())];
         llvm::Value *result = builder().CreateConstGEP2_32 (groupdata_ptr(), 0,
                                                             fieldnum);
         // No derivs?  We're one indirection too few?
@@ -502,20 +501,6 @@ RuntimeOptimizer::getOrAllocateLLVMSymbol (const Symbol& sym)
 
 
 llvm::Value *
-RuntimeOptimizer::LoadParam (const Symbol& sym, int component, int deriv,
-                             float* fdata, int* idata, ustring* sdata)
-{
-    // The local value of the param should have already been filled in
-    // by a useparam. So at this point, we just need the following:
-    //
-    //   return local_params[param];
-    //
-    return NULL;
-}
-
-
-
-llvm::Value *
 RuntimeOptimizer::llvm_get_pointer (const Symbol& sym, int deriv,
                                     llvm::Value *arrayindex)
 {
@@ -556,6 +541,14 @@ RuntimeOptimizer::llvm_load_value (const Symbol& sym, int deriv,
         // we're asking for them, return 0.  Integers don't have derivs
         // so we don't need to worry about that case.
         return llvm_constant (0.0f);
+    }
+
+    if (sym.is_constant()) {
+        // Shortcut for simple float & int constants
+        if (sym.typespec().is_float())
+            return llvm_constant (*(float *)sym.data());
+        if (sym.typespec().is_int())
+            return llvm_constant (*(int *)sym.data());
     }
 
     // Start with the initial pointer to the value's memory location
@@ -691,6 +684,16 @@ RuntimeOptimizer::llvm_store_component_value (llvm::Value* new_val,
 
 
 llvm::Value *
+RuntimeOptimizer::layer_run_ptr (int layer)
+{
+    llvm::Value *layer_run = builder().CreateConstGEP2_32 (groupdata_ptr(), 0, 0 /* field 0 */);
+    llvm::Value *loc = builder().CreateConstGEP1_32 (layer_run, layer);
+    return builder().CreatePointerCast (loc, llvm::PointerType::get(llvm_type_int(), 0));
+}
+
+
+
+llvm::Value *
 RuntimeOptimizer::llvm_call_function (const char *name,
                                       llvm::Value **args, int nargs)
 {
@@ -777,7 +780,46 @@ LLVMGEN (llvm_gen_useparam)
     //   }
     //   write heap_data[param] into local_params[param];
     // }
-    return true;  // FIXME
+    llvm::Value *args[2];
+    args[0] = rop.sg_ptr ();
+    args[1] = rop.groupdata_ptr ();
+
+    Opcode &op (rop.inst()->ops()[opnum]);
+    for (int i = 0;  i < op.nargs();  ++i) {
+        Symbol& sym = *rop.opargsym (op, i);
+        int symindex = rop.inst()->arg (op.firstarg()+i);
+        if (sym.valuesource() == Symbol::ConnectedVal) {
+            for (int c = 0;  c < rop.inst()->nconnections();  ++c) {
+                const Connection &con (rop.inst()->connection (c));
+                // If the connection gives a value to this param
+                if (con.dst.param == symindex) {
+                    // If the earlier layer it comes from has not yet
+                    // been executed, do so now.
+                    //if (! execlayers[con.srclayer].executed())
+                    //    run_connected_layer (con.srclayer);
+                    ShaderInstance *parent = rop.group()[con.srclayer];
+                    // Symbol &parentparam (*parent->argsymbol(con.src.param));
+                    std::string name = Strutil::format ("%s_%d", parent->layername().c_str(), parent->id());
+                    //std::string name = mangled_param_name (parentparam, parent);
+                    llvm::Value *executed = rop.builder().CreateLoad (rop.layer_run_ptr(con.srclayer));
+                    executed = rop.builder().CreateICmpEQ (executed, rop.llvm_constant(0));
+                    // Make code that looks like:
+                    //   if (groupdata->run[parentlayer] == 0) {
+                    //       parent_layer (sg, groupdata);
+                    //       groupdata->run[parentlayer] = 1;
+                    //   }
+                    llvm::BasicBlock *then_block = llvm::BasicBlock::Create (rop.llvm_context(), "", rop.layer_func());
+                    llvm::BasicBlock *after_block = llvm::BasicBlock::Create (rop.llvm_context(), "", rop.layer_func());
+                    rop.builder().CreateCondBr (executed, then_block, after_block);
+                    rop.builder().SetInsertPoint (then_block);
+                    rop.llvm_call_function (name.c_str(), args, 2);
+                    rop.builder().CreateBr (after_block);
+                    rop.builder().SetInsertPoint (after_block);
+                }
+            }
+        }
+    }
+    return true;
 }
 
 
@@ -2057,8 +2099,9 @@ LLVMGEN (llvm_gen_if)
 
     // Load the condition variable
     llvm::Value* cond_load = rop.loadLLVMValue (cond, 0, 0);
-    // Convert the int to a bool via truncation
-    llvm::Value* cond_bool = rop.builder().CreateTrunc (cond_load, rop.llvm_type_bool());
+    // Convert the int to a bool via comparison to 0
+    llvm::Value* cond_bool = rop.builder().CreateICmpNE (cond_load, rop.llvm_constant(0));
+    
     // Branch on the condition, to our blocks
     llvm::BasicBlock* then_block = bb_map[opnum+1];
     llvm::BasicBlock* else_block = bb_map[op.jump(0)];
@@ -2110,8 +2153,8 @@ LLVMGEN (llvm_gen_loop_op)
     rop.builder().SetInsertPoint(cond_block);
     // Load the condition variable (it will have been computed by now)
     llvm::Value* cond_load = rop.loadLLVMValue (cond, 0, 0);
-    // Convert the int to a bool via truncation
-    llvm::Value* cond_bool = rop.builder().CreateTrunc(cond_load, rop.llvm_type_bool());
+    // Convert the int to a bool via comparison to zero
+    llvm::Value* cond_bool = rop.builder().CreateICmpNE (cond_load, rop.llvm_constant(0));
     // Jump to either LoopBody or AfterLoop
     rop.builder().CreateCondBr(cond_bool, body_block, after_block);
 
@@ -2356,7 +2399,7 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
     m_llvm_shaderglobals_ptr = arg_it++;
     m_llvm_groupdata_ptr = arg_it++;
 
-    llvm::BasicBlock* entry_bb = llvm::BasicBlock::Create (llvm_context(), "EntryBlock", m_layer_func);
+    llvm::BasicBlock* entry_bb = llvm::BasicBlock::Create (llvm_context(), std::string("EntryBlock_")+unique_layer_name, m_layer_func);
 
     // Set up a new IR builder
     delete m_builder;
@@ -2378,8 +2421,17 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
                 s.is_constant())
             llvm_assign_initial_value (s);
     }
-
     // All the symbols are stack allocated now.
+
+    // If this is the group entry point, clear all the "layer executed"
+    // bits.  If it's not the group entry (but rather is an upstream
+    // node), then set its bit!
+    if (groupentry) {
+        for (int i = 0;  i < group().nlayers();  ++i)
+            builder().CreateStore (llvm_constant(0), layer_run_ptr(i));
+    } else {
+        builder().CreateStore (llvm_constant(1), layer_run_ptr(m_layer));
+    }
 
     // Mark all the basic blocks, including allocating llvm::BasicBlock
     // records for each.
@@ -2446,14 +2498,12 @@ RuntimeOptimizer::build_llvm_group ()
         set_inst (layer);
         func = build_llvm_instance (layer == (nlayers-1));
         llvm_do_optimization (func, layer == (nlayers-1));
+#ifdef DEBUG
+        llvm::errs() << "func after opt  = " << *func << "\n";
+#endif
     }
 
-#ifdef DEBUG
-//    llvm::errs() << "layer_func (" << unique_layer_name << ") after opt  = " << *m_layer_func << "\n";
-    llvm::errs() << "group_func after opt  = " << *m_layer_func << "\n";
-#endif
-
-    m_group.llvm_compiled_version (m_layer_func);
+    m_group.llvm_compiled_version (func);
 }
 
 
