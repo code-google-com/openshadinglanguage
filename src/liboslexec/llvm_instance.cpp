@@ -251,9 +251,9 @@ RuntimeOptimizer::llvm_type_groupdata ()
     std::cerr << "Group param struct:\n";
 #endif
     m_param_order_map.clear ();
+    int order = 1;
     for (int layer = 0;  layer < m_group.nlayers();  ++layer) {
         ShaderInstance *inst = m_group[layer];
-        int order = 1;
         BOOST_FOREACH (Symbol &sym, inst->symbols()) {
             if (sym.symtype() == SymTypeParam ||
                   sym.symtype() == SymTypeOutputParam) {
@@ -264,12 +264,14 @@ RuntimeOptimizer::llvm_type_groupdata ()
                 fields.push_back (llvm_type (ts));
 
                 // Alignment
-                static const size_t alignment = sizeof(char *);
-                if (sym.size() & (alignment-1))
-                    offset += alignment - (sym.size() & (alignment-1));
+                size_t align = sym.typespec().is_closure() ? sizeof(void*) :
+                    sym.typespec().simpletype().basesize();
+                if (offset & (align-1))
+                    offset += align - (offset & (align-1));
 #ifdef DEBUG
                 std::cerr << "  " << inst->layername() << " " << sym.mangled()
-                          << " " << ts.c_str() << ", offset " << offset << "\n";
+                          << " " << ts.c_str() << ", field " << order 
+                          << ", offset " << offset << "\n";
 #endif
                 sym.dataoffset ((int)offset);
                 offset += n * int(sym.size());
@@ -686,9 +688,8 @@ RuntimeOptimizer::llvm_store_component_value (llvm::Value* new_val,
 llvm::Value *
 RuntimeOptimizer::layer_run_ptr (int layer)
 {
-    llvm::Value *layer_run = builder().CreateConstGEP2_32 (groupdata_ptr(), 0, 0 /* field 0 */);
-    llvm::Value *loc = builder().CreateConstGEP1_32 (layer_run, layer);
-    return builder().CreatePointerCast (loc, llvm::PointerType::get(llvm_type_int(), 0));
+    llvm::Value *layer_run = builder().CreateConstGEP2_32 (groupdata_ptr(), 0, 0);
+    return builder().CreateConstGEP2_32 (layer_run, 0, layer);
 }
 
 
@@ -773,49 +774,51 @@ RuntimeOptimizer::llvm_call_function (const char *name, const Symbol &A,
 
 LLVMGEN (llvm_gen_useparam)
 {
-    // If the param is connected, we need the following sequence:
-    // if (!initialized[param]) {
-    //   if (!connected_layer[param].already_run()) {
-    //     call ConnectedLayer() with sg_ptr;
-    //   }
-    //   write heap_data[param] into local_params[param];
-    // }
+    Opcode &op (rop.inst()->ops()[opnum]);
+    // Prep the args that will be used for all earlier-layer invocations
     llvm::Value *args[2];
     args[0] = rop.sg_ptr ();
     args[1] = rop.groupdata_ptr ();
 
-    Opcode &op (rop.inst()->ops()[opnum]);
+    // If we have multiple params needed on this statement, don't waste
+    // time checking the same upstream layer more than once.
+    std::vector<int> already_run;
+
     for (int i = 0;  i < op.nargs();  ++i) {
         Symbol& sym = *rop.opargsym (op, i);
         int symindex = rop.inst()->arg (op.firstarg()+i);
-        if (sym.valuesource() == Symbol::ConnectedVal) {
-            for (int c = 0;  c < rop.inst()->nconnections();  ++c) {
-                const Connection &con (rop.inst()->connection (c));
-                // If the connection gives a value to this param
-                if (con.dst.param == symindex) {
-                    // If the earlier layer it comes from has not yet
-                    // been executed, do so now.
-                    //if (! execlayers[con.srclayer].executed())
-                    //    run_connected_layer (con.srclayer);
-                    ShaderInstance *parent = rop.group()[con.srclayer];
-                    // Symbol &parentparam (*parent->argsymbol(con.src.param));
-                    std::string name = Strutil::format ("%s_%d", parent->layername().c_str(), parent->id());
-                    //std::string name = mangled_param_name (parentparam, parent);
-                    llvm::Value *executed = rop.builder().CreateLoad (rop.layer_run_ptr(con.srclayer));
-                    executed = rop.builder().CreateICmpEQ (executed, rop.llvm_constant(0));
-                    // Make code that looks like:
-                    //   if (groupdata->run[parentlayer] == 0) {
-                    //       parent_layer (sg, groupdata);
-                    //       groupdata->run[parentlayer] = 1;
-                    //   }
-                    llvm::BasicBlock *then_block = llvm::BasicBlock::Create (rop.llvm_context(), "", rop.layer_func());
-                    llvm::BasicBlock *after_block = llvm::BasicBlock::Create (rop.llvm_context(), "", rop.layer_func());
-                    rop.builder().CreateCondBr (executed, then_block, after_block);
-                    rop.builder().SetInsertPoint (then_block);
-                    rop.llvm_call_function (name.c_str(), args, 2);
-                    rop.builder().CreateBr (after_block);
-                    rop.builder().SetInsertPoint (after_block);
-                }
+        if (sym.valuesource() != Symbol::ConnectedVal)
+            continue;  // Nothing to do
+
+        for (int c = 0;  c < rop.inst()->nconnections();  ++c) {
+            const Connection &con (rop.inst()->connection (c));
+            // If the connection gives a value to this param
+            if (con.dst.param == symindex) {
+                if (std::find (already_run.begin(), already_run.end(), con.srclayer) != already_run.end())
+                    continue;  // already ran that one
+                // If the earlier layer it comes from has not yet
+                // been executed, do so now.
+                //if (! execlayers[con.srclayer].executed())
+                //    run_connected_layer (con.srclayer);
+                ShaderInstance *parent = rop.group()[con.srclayer];
+                // Symbol &parentparam (*parent->argsymbol(con.src.param));
+                std::string name = Strutil::format ("%s_%d", parent->layername().c_str(), parent->id());
+                //std::string name = mangled_param_name (parentparam, parent);
+                llvm::Value *executed = rop.builder().CreateLoad (rop.layer_run_ptr(con.srclayer));
+                executed = rop.builder().CreateICmpEQ (executed, rop.llvm_constant(0));
+                // Make code that looks like:
+                //   if (groupdata->run[parentlayer] == 0) {
+                //       parent_layer (sg, groupdata);
+                //       groupdata->run[parentlayer] = 1;
+                //   }
+                llvm::BasicBlock *then_block = llvm::BasicBlock::Create (rop.llvm_context(), "", rop.layer_func());
+                llvm::BasicBlock *after_block = llvm::BasicBlock::Create (rop.llvm_context(), "", rop.layer_func());
+                rop.builder().CreateCondBr (executed, then_block, after_block);
+                rop.builder().SetInsertPoint (then_block);
+                rop.llvm_call_function (name.c_str(), args, 2);
+                rop.builder().CreateBr (after_block);
+                rop.builder().SetInsertPoint (after_block);
+                already_run.push_back (con.srclayer);  // mark it
             }
         }
     }
@@ -2409,20 +2412,6 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
 //    m_llvm_groupdata_ptr = builder().CreateAlloca (groupdata_type,
 //                                               llvm_constant(1), "$groupdata");
 
-    // Setup the symbols
-    m_named_values.clear ();
-    BOOST_FOREACH (Symbol &s, inst()->symbols()) {
-        // Make space for local, temp, const
-        if (s.symtype() == SymTypeLocal || s.symtype() == SymTypeTemp ||
-                s.symtype() == SymTypeConst)
-            getOrAllocateLLVMSymbol (s);
-        // Set initial value for params and constants
-        if (s.symtype() == SymTypeParam || s.symtype() == SymTypeOutputParam ||
-                s.is_constant())
-            llvm_assign_initial_value (s);
-    }
-    // All the symbols are stack allocated now.
-
     // If this is the group entry point, clear all the "layer executed"
     // bits.  If it's not the group entry (but rather is an upstream
     // node), then set its bit!
@@ -2432,6 +2421,24 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
     } else {
         builder().CreateStore (llvm_constant(1), layer_run_ptr(m_layer));
     }
+
+    // Setup the symbols
+    m_named_values.clear ();
+    BOOST_FOREACH (Symbol &s, inst()->symbols()) {
+        // Skip scalar int or float constants -- we always inline them
+        if (s.is_constant() && !s.typespec().is_closure() &&
+            (s.typespec().is_float() || s.typespec().is_int()))
+            continue;
+        // Allocate space for locals, temps, aggregate constants
+        if (s.symtype() == SymTypeLocal || s.symtype() == SymTypeTemp ||
+                s.symtype() == SymTypeConst)
+            getOrAllocateLLVMSymbol (s);
+        // Set initial value for params and constants
+        if (s.symtype() == SymTypeParam || s.symtype() == SymTypeOutputParam ||
+            s.is_constant())
+            llvm_assign_initial_value (s);
+    }
+    // All the symbols are stack allocated now.
 
     // Mark all the basic blocks, including allocating llvm::BasicBlock
     // records for each.
@@ -2456,8 +2463,6 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
             }
         }
 
-        //rop.shadingsys().info ("op%03zu: %s\n", i, op.opname().c_str());
-
         std::map<ustring,OpLLVMGen>::const_iterator found;
         found = llvm_generator_table.find (op.opname());
         if (found != llvm_generator_table.end()) {
@@ -2473,6 +2478,13 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
         }
     }
 
+    // Transfer all of this layer's outputs into the downstream shader's
+    // inputs.
+    for (int layer = m_layer;  layer < group().nlayers();  ++layer) {
+        ShaderInstance *child = m_group[layer];
+    }
+
+    // All done
     builder().CreateRetVoid();
 
 #ifdef DEBUG
