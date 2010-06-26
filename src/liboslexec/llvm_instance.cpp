@@ -220,17 +220,6 @@ RuntimeOptimizer::llvm_type_sg_ptr ()
 
 
 
-static std::string
-mangled_param_name (const Symbol &param, ShaderInstance *inst)
-{
-    ASSERT (param.symtype() == SymTypeParam ||
-            param.symtype() == SymTypeOutputParam);
-    return Strutil::format ("$param_%s_%d", param.mangled().c_str(),
-                            inst->id());
-}
-
-
-
 const llvm::Type *
 RuntimeOptimizer::llvm_type_groupdata ()
 {
@@ -276,7 +265,7 @@ RuntimeOptimizer::llvm_type_groupdata ()
                 sym.dataoffset ((int)offset);
                 offset += n * int(sym.size());
 
-                m_param_order_map[mangled_param_name(sym, inst)] = order;
+                m_param_order_map[&sym] = order;
                 ++order;
             }
         }
@@ -422,14 +411,15 @@ RuntimeOptimizer::llvm_pass_type (const TypeSpec &typespec)
 void
 RuntimeOptimizer::llvm_zero_derivs (const Symbol &sym)
 {
+    // FIXME - handle arrays
     if (sym.has_derivs() &&
             (sym.typespec().is_float() || sym.typespec().is_triple())) {
         int num_components = sym.typespec().simpletype().aggregate;
         llvm::Value *zero = llvm_constant (0.0f);
         for (int i = 0;  i < num_components;  ++i)
-            storeLLVMValue (zero, sym, i, 1);  // clear dx
+            llvm_store_value (zero, sym, 1, NULL, i);  // clear dx
         for (int i = 0;  i < num_components;  ++i)
-            storeLLVMValue (zero, sym, i, 2);  // clear dy
+            llvm_store_value (zero, sym, 2, NULL, i);  // clear dy
     }
 }
 
@@ -455,7 +445,7 @@ RuntimeOptimizer::getLLVMSymbolBase (const Symbol &sym)
 
     if (sym.symtype() == SymTypeParam || sym.symtype() == SymTypeOutputParam) {
         // Special case for params -- they live in the group data
-        int fieldnum = m_param_order_map[mangled_param_name (sym, inst())];
+        int fieldnum = m_param_order_map[&sym];
         llvm::Value *result = builder().CreateConstGEP2_32 (groupdata_ptr(), 0,
                                                             fieldnum);
         // No derivs?  We're one indirection too few?
@@ -801,9 +791,6 @@ LLVMGEN (llvm_gen_useparam)
                 //if (! execlayers[con.srclayer].executed())
                 //    run_connected_layer (con.srclayer);
                 ShaderInstance *parent = rop.group()[con.srclayer];
-                // Symbol &parentparam (*parent->argsymbol(con.src.param));
-                std::string name = Strutil::format ("%s_%d", parent->layername().c_str(), parent->id());
-                //std::string name = mangled_param_name (parentparam, parent);
                 llvm::Value *executed = rop.builder().CreateLoad (rop.layer_run_ptr(con.srclayer));
                 executed = rop.builder().CreateICmpEQ (executed, rop.llvm_constant(0));
                 // Make code that looks like:
@@ -815,6 +802,7 @@ LLVMGEN (llvm_gen_useparam)
                 llvm::BasicBlock *after_block = llvm::BasicBlock::Create (rop.llvm_context(), "", rop.layer_func());
                 rop.builder().CreateCondBr (executed, then_block, after_block);
                 rop.builder().SetInsertPoint (then_block);
+                std::string name = Strutil::format ("%s_%d", parent->layername().c_str(), parent->id());
                 rop.llvm_call_function (name.c_str(), args, 2);
                 rop.builder().CreateBr (after_block);
                 rop.builder().SetInsertPoint (after_block);
@@ -1521,18 +1509,22 @@ LLVMGEN (llvm_gen_unary_op)
 
 
 
-// Simple assignment
-LLVMGEN (llvm_gen_assign)
+// Implementaiton of Simple assignment
+static bool
+llvm_assign_impl (RuntimeOptimizer &rop, Symbol &Result, Symbol &Src,
+                  int arrayindex = -1)
 {
-    Opcode &op (rop.inst()->ops()[opnum]);
-    Symbol& Result (*rop.opargsym (op, 0));
-    Symbol& Src (*rop.opargsym (op, 1));
     ASSERT (! Result.typespec().is_structure() &&
             ! Result.typespec().is_array());
     ASSERT (! Src.typespec().is_structure() &&
             ! Src.typespec().is_array());
 
+    ASSERT (arrayindex == -1);  // FIXME -- do array elements later
+
+    llvm::Value *arrind = arrayindex >= 0 ? rop.llvm_constant (arrayindex) : NULL;
+
     if (Result.typespec().is_closure() || Src.typespec().is_closure()) {
+        ASSERT (arrayindex < 0 && "FIXME: arrays of closures not implemented");
         if (Src.typespec().is_closure())
             rop.llvm_call_function ("osl_closure_assign", Result, Src);
         else
@@ -1542,26 +1534,26 @@ LLVMGEN (llvm_gen_assign)
 
     if (Result.typespec().is_matrix() && Src.typespec().is_int_or_float()) {
         // Handle m=f, m=i separately
-        llvm::Value *src = rop.loadLLVMValue (Src, 0, 0, TypeDesc::FLOAT /*cast*/);
+        llvm::Value *src = rop.llvm_load_value (Src, 0, arrind, 0, TypeDesc::FLOAT /*cast*/);
         // m=f sets the diagonal components to f, the others to zero
         llvm::Value *zero = rop.llvm_constant (0.0f);
         for (int i = 0;  i < 4;  ++i)
             for (int j = 0;  j < 4;  ++j)
-                rop.storeLLVMValue (i==j ? src : zero, Result, i*4+j);
+                rop.llvm_store_value (i==j ? src : zero, Result, 0, arrind, i*4+j);
         ASSERT (! Result.has_derivs() && "matrices shouldn't have derivs");
         return true;
     }
 
     // The following code handles f=f, f=i, v=v, v=f, v=i, m=m, s=s.
-    // Remember that loadLLVMValue will automatically convert scalar->triple.
+    // Remember that llvm_load_value will automatically convert scalar->triple.
     TypeDesc rt = Result.typespec().simpletype();
     TypeDesc basetype = TypeDesc::BASETYPE(rt.basetype);
     int num_components = rt.aggregate;
     for (int i = 0; i < num_components; ++i) {
-        llvm::Value* src_val = rop.loadLLVMValue (Src, i, 0, basetype);
+        llvm::Value* src_val = rop.llvm_load_value (Src, 0, arrind, i, basetype);
         if (!src_val)
             return false;
-        rop.storeLLVMValue (src_val, Result, i, 0);
+        rop.llvm_store_value (src_val, Result, 0, arrind, i);
     }
 
     // Handle derivatives
@@ -1570,8 +1562,8 @@ LLVMGEN (llvm_gen_assign)
             // src and result both have derivs -- copy them
             for (int d = 1;  d <= 2;  ++d) {
                 for (int i = 0; i < num_components; ++i) {
-                    llvm::Value* val = rop.loadLLVMValue (Src, i, d);
-                    rop.storeLLVMValue (val, Result, i, d);
+                    llvm::Value* val = rop.llvm_load_value (Src, d, arrind, i);
+                    rop.llvm_store_value (val, Result, d, arrind, i);
                 }
             }
         } else {
@@ -1580,6 +1572,18 @@ LLVMGEN (llvm_gen_assign)
         }
     }
     return true;
+}
+
+
+
+// Simple assignment
+LLVMGEN (llvm_gen_assign)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result (*rop.opargsym (op, 0));
+    Symbol& Src (*rop.opargsym (op, 1));
+
+    return llvm_assign_impl (rop, Result, Src);
 }
 
 
@@ -2480,8 +2484,25 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
 
     // Transfer all of this layer's outputs into the downstream shader's
     // inputs.
-    for (int layer = m_layer;  layer < group().nlayers();  ++layer) {
+    for (int layer = m_layer+1;  layer < group().nlayers();  ++layer) {
         ShaderInstance *child = m_group[layer];
+        for (int c = 0;  c < child->nconnections();  ++c) {
+            const Connection &con (child->connection (c));
+            if (con.srclayer == m_layer) {
+                ASSERT (con.src.arrayindex == -1 && con.src.channel == -1 &&
+                        con.dst.arrayindex == -1 && con.dst.channel == -1 &&
+                        "no support for individual element/channel connection");
+                Symbol *srcsym (inst()->symbol (con.src.param));
+                Symbol *dstsym (child->symbol (con.dst.param));
+                if (srcsym->typespec().is_array()) {
+                    for (int i = 0;  i < srcsym->typespec().arraylength();  ++i)
+                        llvm_assign_impl (*this, *dstsym, *srcsym, i);
+                } else {
+                    // Not an array case
+                    llvm_assign_impl (*this, *dstsym, *srcsym);
+                }
+            }
+        }
     }
 
     // All done

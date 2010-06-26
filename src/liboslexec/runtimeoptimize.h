@@ -482,7 +482,7 @@ private:
     llvm::Module *m_llvm_module;
     AllocationMap m_named_values;
     BasicBlockMap m_bb_map;
-    std::map<std::string,int> m_param_order_map;
+    std::map<const Symbol*,int> m_param_order_map;
     llvm::IRBuilder<> *m_builder;
     llvm::Value *m_llvm_shaderglobals_ptr;
     llvm::Value *m_llvm_groupdata_ptr;
