@@ -232,6 +232,7 @@ RuntimeOptimizer::insert_code (int opnum, ustring opname, OpImpl impl,
     opargs.insert (opargs.end(), args_to_add.begin(), args_to_add.end());
     if (opnum < inst()->m_maincodebegin)
         ++inst()->m_maincodebegin;
+    ++inst()->m_maincodeend;
 
     // Unless we were inserting at the end, we may need to adjust
     // the jump addresses of other ops and the param init ranges.
