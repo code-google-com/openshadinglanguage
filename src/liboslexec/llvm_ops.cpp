@@ -613,9 +613,21 @@ osl_closure_clear (ClosureColor *r)
 }
 
 extern "C" void
+osl_closure_clear_indexed (ClosureColor **r, int i)
+{
+    r[i]->clear ();
+}
+
+extern "C" void
 osl_closure_assign (ClosureColor *r, ClosureColor *x)
 {
     *r = *x;
+}
+
+extern "C" void
+osl_closure_assign_indexed (ClosureColor **r, int ri, ClosureColor **x, int xi)
+{
+    *(r[ri]) = *(x[xi]);
 }
 
 extern "C" void

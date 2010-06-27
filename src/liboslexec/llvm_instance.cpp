@@ -439,7 +439,7 @@ RuntimeOptimizer::getLLVMSymbolBase (const Symbol &sym)
         ASSERT (sg_index >= 0);
         llvm::Value *result = builder().CreateConstGEP2_32 (sg_ptr(), 0, sg_index);
         // No derivs?  We're one indirection too few?
-        result = builder().CreatePointerCast (result, llvm::PointerType::get(llvm_type(sym.typespec()), 0));
+        result = builder().CreatePointerCast (result, llvm::PointerType::get(llvm_type(sym.typespec().elementtype()), 0));
         return result;
     }
 
@@ -449,7 +449,7 @@ RuntimeOptimizer::getLLVMSymbolBase (const Symbol &sym)
         llvm::Value *result = builder().CreateConstGEP2_32 (groupdata_ptr(), 0,
                                                             fieldnum);
         // No derivs?  We're one indirection too few?
-        result = builder().CreatePointerCast (result, llvm::PointerType::get(llvm_type(sym.typespec()), 0));
+        result = builder().CreatePointerCast (result, llvm::PointerType::get(llvm_type(sym.typespec().elementtype()), 0));
         return result;
     }
 
@@ -537,10 +537,18 @@ RuntimeOptimizer::llvm_load_value (const Symbol& sym, int deriv,
 
     if (sym.is_constant()) {
         // Shortcut for simple float & int constants
-        if (sym.typespec().is_float())
-            return llvm_constant (*(float *)sym.data());
-        if (sym.typespec().is_int())
-            return llvm_constant (*(int *)sym.data());
+        if (sym.typespec().is_float()) {
+            if (cast == TypeDesc::TypeInt)
+                return llvm_constant ((int)*(float *)sym.data());
+            else
+                return llvm_constant (*(float *)sym.data());
+        }
+        if (sym.typespec().is_int()) {
+            if (cast == TypeDesc::TypeFloat)
+                return llvm_constant ((float)*(int *)sym.data());
+            else
+                return llvm_constant (*(int *)sym.data());
+        }
     }
 
     // Start with the initial pointer to the value's memory location
@@ -713,12 +721,12 @@ RuntimeOptimizer::llvm_call_function (const char *name,
     for (int i = 0;  i < nargs;  ++i) {
         const Symbol &s = *(symargs[i]);
         if (s.typespec().is_closure())
-            valargs[i] = loadLLVMValue (s);
+            valargs[i] = llvm_load_value (s);
         else if (s.typespec().simpletype().aggregate > 1 ||
                  (deriv_ptrs && s.has_derivs()))
             valargs[i] = llvm_void_ptr (s);
         else
-            valargs[i] = loadLLVMValue (s);
+            valargs[i] = llvm_load_value (s);
     }
     return llvm_call_function (name, &valargs[0], (int)valargs.size());
 }
@@ -1509,7 +1517,8 @@ LLVMGEN (llvm_gen_unary_op)
 
 
 
-// Implementaiton of Simple assignment
+// Implementaiton of Simple assignment.  If arrayindex >= 0, in designates
+// a particular array index to assign.
 static bool
 llvm_assign_impl (RuntimeOptimizer &rop, Symbol &Result, Symbol &Src,
                   int arrayindex = -1)
@@ -1524,11 +1533,27 @@ llvm_assign_impl (RuntimeOptimizer &rop, Symbol &Result, Symbol &Src,
     llvm::Value *arrind = arrayindex >= 0 ? rop.llvm_constant (arrayindex) : NULL;
 
     if (Result.typespec().is_closure() || Src.typespec().is_closure()) {
-        ASSERT (arrayindex < 0 && "FIXME: arrays of closures not implemented");
-        if (Src.typespec().is_closure())
-            rop.llvm_call_function ("osl_closure_assign", Result, Src);
-        else
-            rop.llvm_call_function ("osl_closure_clear", Result);
+        if (Result.typespec().is_array()) {
+            int ind = std::max (arrayindex, 0);
+            if (Src.typespec().is_closure()) {
+                llvm::Value *args[4];
+                args[0] = rop.llvm_load_value (Result, 0, arrind, 0);
+                args[1] = rop.llvm_constant (ind);
+                args[2] = rop.llvm_load_value (Src, 0, arrind, 0);
+                args[3] = rop.llvm_constant (ind);
+                rop.llvm_call_function ("osl_closure_assign_indexed", args, 4);
+            } else {
+                llvm::Value *args[2];
+                args[0] = rop.llvm_load_value (Result, 0, arrind, 0);
+                args[1] = rop.llvm_constant (ind);
+                rop.llvm_call_function ("osl_closure_clear_indexed", args, 2);
+            }
+        } else {
+            if (Src.typespec().is_closure())
+                rop.llvm_call_function ("osl_closure_assign", Result, Src);
+            else
+                rop.llvm_call_function ("osl_closure_clear", Result);
+        }
         return true;
     }
 
@@ -2187,24 +2212,25 @@ void
 RuntimeOptimizer::llvm_assign_initial_value (const Symbol& sym)
 {
     int num_components = sym.typespec().simpletype().aggregate;
-    if (sym.typespec().is_array())
-        num_components *= sym.typespec().arraylength();
+    int arraylen = std::max (1, sym.typespec().arraylength());
 
-    for (int i = 0; i < num_components; ++i) {
-        if (sym.has_init_ops())
-            break;   // FIXME - skip init ops for now
-
-        // Fill in the constant val
-        // Setup initial store
-        llvm::Value* init_val = 0;
-        // shadingsys.info ("Assigning initial value for symbol '%s' = ", sym.mangled().c_str());
-        if (sym.typespec().is_floatbased())
-            init_val = llvm_constant (((float*)sym.data())[i]);
-        else if (sym.typespec().simpletype() == TypeDesc::TypeString)
-            init_val = llvm_constant (((ustring*)sym.data())[i]);
-        else if (sym.typespec().simpletype() == TypeDesc::TypeInt)
-            init_val = llvm_constant (((int*)sym.data())[i]);
-        storeLLVMValue (init_val, sym, i, 0);
+    for (int a = 0, c = 0; a < arraylen;  ++a) {
+        llvm::Value *arrind = sym.typespec().is_array() ? llvm_constant(a) : NULL;
+        for (int i = 0; i < num_components; ++i, ++c) {
+            if (sym.has_init_ops())
+                break;   // FIXME - skip init ops for now
+            // Fill in the constant val
+            llvm::Value* init_val = 0;
+            TypeSpec elemtype = sym.typespec().elementtype();
+            if (elemtype.is_floatbased())
+                init_val = llvm_constant (((float*)sym.data())[c]);
+            else if (elemtype.is_string())
+                init_val = llvm_constant (((ustring*)sym.data())[c]);
+            else if (elemtype.is_int())
+                init_val = llvm_constant (((int*)sym.data())[c]);
+            ASSERT (init_val);
+            llvm_store_value (init_val, sym, 0, arrind, i);
+        }
     }
     if (sym.has_derivs())
         llvm_zero_derivs (sym);
