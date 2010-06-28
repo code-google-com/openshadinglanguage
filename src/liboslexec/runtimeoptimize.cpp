@@ -1575,10 +1575,8 @@ RuntimeOptimizer::find_basic_blocks (bool do_llvm)
             block_begin[s.initbegin()] = true;
     }
 
-    // Main code starts a basic block -- but not if we're doing this for
-    // LLVM generation, because the Entry block is special.
-    if (! do_llvm)
-        block_begin[inst()->m_maincodebegin] = true;
+    // Main code starts a basic block
+    block_begin[inst()->m_maincodebegin] = true;
 
     for (size_t opnum = 0;  opnum < code.size();  ++opnum) {
         // Anyplace that's the target of a jump instruction starts a basic block
@@ -1597,18 +1595,9 @@ RuntimeOptimizer::find_basic_blocks (bool do_llvm)
 
     // Now color the blocks with unique identifiers
     int bbid = 1;  // next basic block ID to use
-#if USE_LLVM
-    m_bb_map.resize (code.size(), NULL);
-#endif
     for (size_t opnum = 0;  opnum < code.size();  ++opnum) {
-        if (block_begin[opnum]) {
+        if (block_begin[opnum])
             ++bbid;
-#if USE_LLVM
-            if (do_llvm)
-                m_bb_map[opnum] = llvm::BasicBlock::Create (llvm_context(), "",
-                                                            m_layer_func);
-#endif
-        }
         m_bblockids[opnum] = bbid;
     }
 }

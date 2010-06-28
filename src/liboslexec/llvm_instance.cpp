@@ -806,8 +806,8 @@ LLVMGEN (llvm_gen_useparam)
                 //       parent_layer (sg, groupdata);
                 //       groupdata->run[parentlayer] = 1;
                 //   }
-                llvm::BasicBlock *then_block = llvm::BasicBlock::Create (rop.llvm_context(), "", rop.layer_func());
-                llvm::BasicBlock *after_block = llvm::BasicBlock::Create (rop.llvm_context(), "", rop.layer_func());
+                llvm::BasicBlock *then_block = rop.llvm_new_basic_block ("");
+                llvm::BasicBlock *after_block = rop.llvm_new_basic_block ("");
                 rop.builder().CreateCondBr (executed, then_block, after_block);
                 rop.builder().SetInsertPoint (then_block);
                 std::string name = Strutil::format ("%s_%d", parent->layername().c_str(), parent->id());
@@ -2127,27 +2127,27 @@ LLVMGEN (llvm_gen_if)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& cond = *rop.opargsym (op, 0);
-    RuntimeOptimizer::BasicBlockMap& bb_map (rop.bb_map());
 
-    // Load the condition variable
-    llvm::Value* cond_load = rop.loadLLVMValue (cond, 0, 0);
-    // Convert the int to a bool via comparison to 0
-    llvm::Value* cond_bool = rop.builder().CreateICmpNE (cond_load, rop.llvm_constant(0));
+    // Load the condition variable and figure out if it's nonzero
+    llvm::Value* cond_val = rop.llvm_load_value (cond, 0, 0, TypeDesc::TypeInt);
+    cond_val = rop.builder().CreateICmpNE (cond_val, rop.llvm_constant(0));
     
     // Branch on the condition, to our blocks
-    llvm::BasicBlock* then_block = bb_map[opnum+1];
-    llvm::BasicBlock* else_block = bb_map[op.jump(0)];
-    llvm::BasicBlock* after_block = bb_map[op.jump(1)];
-    rop.builder().CreateCondBr (cond_bool, then_block, else_block);
-    // Put an unconditional branch at the end of the Then and Else blocks
-    if (then_block != after_block) {
-        rop.builder().SetInsertPoint (then_block);
-        rop.builder().CreateBr (after_block);
-    }
-    if (else_block != after_block) {
-        rop.builder().SetInsertPoint (else_block);
-        rop.builder().CreateBr (after_block);
-    }
+    llvm::BasicBlock* then_block = rop.llvm_new_basic_block ("then");
+    llvm::BasicBlock* else_block = rop.llvm_new_basic_block ("else");
+    llvm::BasicBlock* after_block = rop.llvm_new_basic_block ("");
+    rop.builder().CreateCondBr (cond_val, then_block, else_block);
+
+    // Then block
+    rop.build_llvm_code (opnum+1, op.jump(0), then_block);
+    rop.builder().CreateBr (after_block);
+
+    // Else block
+    rop.build_llvm_code (op.jump(0), op.jump(1), else_block);
+    rop.builder().CreateBr (after_block);
+
+    // Continue on with the previous flow
+    rop.builder().SetInsertPoint (after_block);
     return true;
 }
 
@@ -2157,52 +2157,38 @@ LLVMGEN (llvm_gen_loop_op)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
     Symbol& cond = *rop.opargsym (op, 0);
-    RuntimeOptimizer::BasicBlockMap& bb_map (rop.bb_map());
 
     // Branch on the condition, to our blocks
-    llvm::BasicBlock* init_block = bb_map[opnum+1];
-    llvm::BasicBlock* cond_block = bb_map[op.jump(0)];
-    llvm::BasicBlock* body_block = bb_map[op.jump(1)];
-    llvm::BasicBlock* step_block = bb_map[op.jump(2)];
-    llvm::BasicBlock* after_block = bb_map[op.jump(3)];
+    llvm::BasicBlock* cond_block = rop.llvm_new_basic_block ("cond");
+    llvm::BasicBlock* body_block = rop.llvm_new_basic_block ("body");
+    llvm::BasicBlock* step_block = rop.llvm_new_basic_block ("step");
+    llvm::BasicBlock* after_block = rop.llvm_new_basic_block ("");
 
-    // Insert the unconditional jump to the LoopCond
-    if (init_block != cond_block) {
-        // There are some init ops, insert branch afterwards (but first jump to InitBlock)
-        rop.builder().CreateBr(init_block);
-        rop.builder().SetInsertPoint(init_block);
-    }
-    // Either we have init ops (and we'll jump to LoopCond afterwards)
-    // or we don't and we need a terminator in the current block. If
-    // we're a dowhile loop, we jump to the body block after init
-    // instead of cond.
-    if (op.opname() == op_dowhile) {
-        rop.builder().CreateBr(body_block);
-    } else {
-        rop.builder().CreateBr(cond_block);
-    }
+    // Initialization (will be empty except for "for" loops)
+    rop.build_llvm_code (opnum+1, op.jump(0));
 
-    rop.builder().SetInsertPoint(cond_block);
-    // Load the condition variable (it will have been computed by now)
-    llvm::Value* cond_load = rop.loadLLVMValue (cond, 0, 0);
-    // Convert the int to a bool via comparison to zero
-    llvm::Value* cond_bool = rop.builder().CreateICmpNE (cond_load, rop.llvm_constant(0));
+    // For "do-while", we go straight to the body of the loop, but for
+    // "for" or "while", we test the condition next.
+    rop.builder().CreateBr (op.opname() == op_dowhile ? body_block : cond_block);
+
+    // Load the condition variable and figure out if it's nonzero
+    rop.build_llvm_code (op.jump(0), op.jump(1), cond_block);
+    llvm::Value* cond_val = rop.llvm_load_value (cond, 0, 0, TypeDesc::TypeInt);
+    cond_val = rop.builder().CreateICmpNE (cond_val, rop.llvm_constant(0));
     // Jump to either LoopBody or AfterLoop
-    rop.builder().CreateCondBr(cond_bool, body_block, after_block);
+    rop.builder().CreateCondBr (cond_val, body_block, after_block);
 
-    // Put an unconditional jump from Body into Step
-    if (step_block != after_block) {
-        rop.builder().SetInsertPoint(body_block);
-        rop.builder().CreateBr(step_block);
+    // Body of loop
+    rop.build_llvm_code (op.jump(1), op.jump(2), body_block);
+    rop.builder().CreateBr (step_block);
 
-        // Put an unconditional jump from Step to Cond
-        rop.builder().SetInsertPoint(step_block);
-        rop.builder().CreateBr(cond_block);
-    } else {
-        // Step is empty, probably a do_while or while loop. Jump from Body to Cond
-        rop.builder().SetInsertPoint(body_block);
-        rop.builder().CreateBr(cond_block);
-    }
+    // Step
+    rop.build_llvm_code (op.jump(2), op.jump(3), step_block);
+    rop.builder().CreateBr (cond_block);
+
+    // Continue on with the previous flow
+    rop.builder().SetInsertPoint (after_block);
+
     return true;
 }
 
@@ -2217,8 +2203,6 @@ RuntimeOptimizer::llvm_assign_initial_value (const Symbol& sym)
     for (int a = 0, c = 0; a < arraylen;  ++a) {
         llvm::Value *arrind = sym.typespec().is_array() ? llvm_constant(a) : NULL;
         for (int i = 0; i < num_components; ++i, ++c) {
-            if (sym.has_init_ops())
-                break;   // FIXME - skip init ops for now
             // Fill in the constant val
             llvm::Value* init_val = 0;
             TypeSpec elemtype = sym.typespec().elementtype();
@@ -2234,6 +2218,9 @@ RuntimeOptimizer::llvm_assign_initial_value (const Symbol& sym)
     }
     if (sym.has_derivs())
         llvm_zero_derivs (sym);
+
+    if (sym.has_init_ops())
+        build_llvm_code (sym.initbegin(), sym.initend());
 }
 
 
@@ -2416,6 +2403,39 @@ initialize_llvm_generator_table ()
 
 
 
+bool
+RuntimeOptimizer::build_llvm_code (int beginop, int endop, llvm::BasicBlock *bb)
+{
+    if (bb)
+        builder().SetInsertPoint (bb);
+
+    for (int opnum = beginop;  opnum < endop;  ++opnum) {
+        const Opcode& op = inst()->ops()[opnum];
+
+        std::map<ustring,OpLLVMGen>::const_iterator found;
+        found = llvm_generator_table.find (op.opname());
+        if (found != llvm_generator_table.end()) {
+            bool ok = (*found->second) (*this, opnum);
+            if (! ok)
+                return false;
+        } else if (op.opname() == op_nop ||
+                   op.opname() == op_end) {
+            // Skip this op, it does nothing...
+        } else {
+            m_shadingsys.error ("LLVMOSL: Unsupported op %s\n", op.opname().c_str());
+            return false;
+        }
+
+        // If the op we coded jumps around, skip past its recursive block
+        // executions.
+        int next = op.farthest_jump ();
+        if (next >= 0)
+            opnum = next-1;
+    }
+    return true;
+}
+
+
 llvm::Function*
 RuntimeOptimizer::build_llvm_instance (bool groupentry)
 {
@@ -2426,13 +2446,12 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
     m_layer_func = llvm::cast<llvm::Function>(m_llvm_module->getOrInsertFunction(unique_layer_name,
                     llvm_type_void(), llvm_type_sg_ptr(),
                     llvm_type_groupdata_ptr(), NULL));
-    const OpcodeVec& instance_ops (inst()->ops());
     llvm::Function::arg_iterator arg_it = m_layer_func->arg_begin();
     // Get shader globals pointer
     m_llvm_shaderglobals_ptr = arg_it++;
     m_llvm_groupdata_ptr = arg_it++;
 
-    llvm::BasicBlock* entry_bb = llvm::BasicBlock::Create (llvm_context(), std::string("EntryBlock_")+unique_layer_name, m_layer_func);
+    llvm::BasicBlock *entry_bb = llvm_new_basic_block (unique_layer_name);
 
     // Set up a new IR builder
     delete m_builder;
@@ -2474,39 +2493,7 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
     // records for each.
     find_basic_blocks (true);
 
-    for (int opnum = inst()->maincodebegin();
-             opnum < inst()->maincodeend(); ++opnum) {
-        const Opcode& op = instance_ops[opnum];
-        if (m_bb_map[opnum]) {   // it's NULL when not the start of a BB
-            // If we start a new BasicBlock, point the builder there.
-            llvm::BasicBlock* next_bb = m_bb_map[opnum];
-            if (next_bb != entry_bb) {
-                // If we're not the entry block (which is where all the
-                // AllocaInstructions go), then start insertion at the
-                // beginning of the block. This way we can insert instructions
-                // before the possible jmp inserted at the end by an upstream
-                // conditional (e.g. if/for/while/do)
-                builder().SetInsertPoint (next_bb, next_bb->begin());
-            } else {
-                // Otherwise, use the end (IRBuilder default)
-                builder().SetInsertPoint (next_bb);
-            }
-        }
-
-        std::map<ustring,OpLLVMGen>::const_iterator found;
-        found = llvm_generator_table.find (op.opname());
-        if (found != llvm_generator_table.end()) {
-            bool ok = (*found->second) (*this, opnum);
-            if (! ok)
-                return NULL;
-        } else if (op.opname() == op_nop ||
-                   op.opname() == op_end) {
-            // Skip this op, it does nothing...
-        } else {
-            m_shadingsys.error ("LLVMOSL: Unsupported op %s\n", op.opname().c_str());
-            return NULL;
-        }
-    }
+    build_llvm_code (inst()->maincodebegin(), inst()->maincodeend(), entry_bb);
 
     // Transfer all of this layer's outputs into the downstream shader's
     // inputs.

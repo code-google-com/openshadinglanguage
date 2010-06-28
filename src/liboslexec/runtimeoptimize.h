@@ -248,14 +248,17 @@ public:
     /// This will end up being the group entry if 'groupentry' is true.
     llvm::Function* build_llvm_instance (bool groupentry);
 
+    /// Build up LLVM IR code for the given range [begin,end) or
+    /// opcodes, putting them (initially) into basic block bb (or the
+    /// current basic block if bb==NULL).
+    bool build_llvm_code (int beginop, int endop, llvm::BasicBlock *bb=NULL);
+
     typedef std::map<std::string, llvm::AllocaInst*> AllocationMap;
-    typedef std::vector<llvm::BasicBlock*> BasicBlockMap;
 
     void llvm_assign_initial_value (const Symbol& sym);
     llvm::LLVMContext &llvm_context () const { return *m_llvm_context; }
     llvm::Module *llvm_module () const { return m_llvm_module; }
     AllocationMap &named_values () { return m_named_values; }
-    BasicBlockMap &bb_map () { return m_bb_map; }
     llvm::IRBuilder<> &builder () { return *m_builder; }
 
     /// Return an llvm::Value* corresponding to the address of the given
@@ -449,6 +452,12 @@ public:
     const llvm::PointerType *llvm_type_triple_ptr() { return m_llvm_type_triple_ptr; }
     const llvm::PointerType *llvm_type_matrix_ptr() { return m_llvm_type_matrix_ptr; }
 
+    /// Shorthand to create a new LLVM basic block and return its handle.
+    ///
+    llvm::BasicBlock *llvm_new_basic_block (const std::string &name) {
+        return llvm::BasicBlock::Create (llvm_context(), name, m_layer_func);
+    }
+
     llvm::Function *layer_func () const { return m_layer_func; }
 
     void llvm_setup_optimization_passes ();
@@ -481,7 +490,6 @@ private:
     llvm::LLVMContext *m_llvm_context;
     llvm::Module *m_llvm_module;
     AllocationMap m_named_values;
-    BasicBlockMap m_bb_map;
     std::map<const Symbol*,int> m_param_order_map;
     llvm::IRBuilder<> *m_builder;
     llvm::Value *m_llvm_shaderglobals_ptr;
