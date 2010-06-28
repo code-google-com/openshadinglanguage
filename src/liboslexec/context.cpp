@@ -137,10 +137,8 @@ ShadingContext::execute_llvm (ShaderUse use, Runflag *rf, int *ind, int nind)
 {
 #if USE_LLVM
     ShaderGroup &sgroup (attribs()->shadergroup (use));
-//        ShaderInstance *shader = sgroup[layer()];
 
     typedef void (*RunLayerFunc)(SingleShaderGlobal*, void*); 
-    //printf("About to run the LLVM Version of layer '%s' (pointer = %p)!\n", shader->layername().c_str(), shader);
     llvm::ExecutionEngine* ee = shadingsys().ExecutionEngine();
     RunLayerFunc run_func = reinterpret_cast<RunLayerFunc>(ee->getPointerToFunction(sgroup.llvm_compiled_version()));
 
@@ -342,15 +340,38 @@ Symbol *
 ShadingContext::symbol (ShaderUse use, ustring name)
 {
     size_t nlayers = m_nlayers[use];
-   
-    ASSERT(nlayers <= m_exec[use].size()); 
 
-    for (int layer = (int)nlayers-1;  layer >= 0;  --layer) {
-        Symbol *sym = m_exec[use][layer].symbol (name);
-        if (sym)
-            return sym;
+    ShaderGroup &sgroup (attribs()->shadergroup (use));
+    if (shadingsys().use_llvm() && sgroup.llvm_compiled_version()) {
+        for (int layer = (int)nlayers-1;  layer >= 0;  --layer) {
+            Symbol *sym = sgroup[layer]->symbol (name);
+            if (sym)
+                return sym;
+        }
+    } else {
+        ASSERT(nlayers <= m_exec[use].size()); 
+        for (int layer = (int)nlayers-1;  layer >= 0;  --layer) {
+            Symbol *sym = m_exec[use][layer].symbol (name);
+            if (sym)
+                return sym;
+        }
     }
     return NULL;
+}
+
+
+
+void *
+ShadingContext::symbol_data (Symbol &sym, int gridpoint)
+{
+    ShaderGroup &sgroup (attribs()->shadergroup ((ShaderUse)m_curuse));
+    if (shadingsys().use_llvm() && sgroup.llvm_compiled_version()) {
+        size_t offset = sgroup.llvm_groupdata_size() * gridpoint;
+        offset += sym.dataoffset();
+        return &m_heap[offset];
+    } else {
+        return (char *)sym.data() + gridpoint * sym.step();
+    }
 }
 
 

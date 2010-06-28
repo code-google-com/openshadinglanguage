@@ -777,6 +777,10 @@ public:
     /// Return NULL if no such symbol is found.
     Symbol * symbol (ShaderUse use, ustring name);
 
+    /// Return a pointer to where the symbol's data lives for the given
+    /// grid point.
+    void *symbol_data (Symbol &sym, int gridpoint);
+
     /// Return a refreence to the ExecutionLayers corresponding to the
     /// given shader use.
     ExecutionLayers &execlayer (ShaderUse use) { return m_exec[(int)use]; }

@@ -367,8 +367,7 @@ main (int argc, const char *argv[])
         img.zero ();
         for (int y = 0, n = 0;  y < yres;  ++y) {
             for (int x = 0;  x < xres;  ++x, ++n) {
-                OpenImageIO::convert_types (tbase,
-                                            (char *)sym->data() + n*sym->step(),
+                OpenImageIO::convert_types (tbase, ctx->symbol_data (*sym, n),
                                             TypeDesc::FLOAT, &pixel[0], nchans);
                 img.setpixel (x, y, &pixel[0]);
             }
