@@ -2197,6 +2197,10 @@ LLVMGEN (llvm_gen_loop_op)
 void
 RuntimeOptimizer::llvm_assign_initial_value (const Symbol& sym)
 {
+    // Don't write over connections!
+    if (sym.valuesource() == Symbol::ConnectedVal)
+        return;
+
     int num_components = sym.typespec().simpletype().aggregate;
     int arraylen = std::max (1, sym.typespec().arraylength());
 
