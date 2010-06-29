@@ -1185,15 +1185,59 @@ osl_texture_set_fill (void *opt, float x)
 extern "C" int
 osl_texture (void *sg_, const char *name, void *opt_, float s, float t,
              float dsdx, float dtdx, float dsdy, float dtdy, int chans,
-             void *result, void *dresultds, void *dresultdt)
+             void *result, void *dresultdx, void *dresultdy)
 {
     SingleShaderGlobal *sg = (SingleShaderGlobal *)sg_;
     TextureSystem *texsys = sg->context->shadingsys().texturesys();
     TextureOptions *opt = (TextureOptions *)opt_;
-    opt->dresultds = (float *)dresultds;
-    opt->dresultdt = (float *)dresultdt;
     opt->nchannels = chans;
-    return texsys->texture (USTR(name), *opt, s, t,
-                            dsdx, dtdx, dsdy, dtdy, (float *)result);
-    return 0;
+    float dresultds[3], dresultdt[3];
+    opt->dresultds = dresultdx ? dresultds : NULL;
+    opt->dresultdt = dresultdy ? dresultdt : NULL;
+    bool ok = texsys->texture (USTR(name), *opt, s, t,
+                               dsdx, dtdx, dsdy, dtdy, (float *)result);
+    // Correct our st texture space gradients into xy-space gradients
+    if (dresultdx)
+        for (int i = 0;  i < chans;  ++i)
+            ((float *)dresultdx)[i] = dresultds[i] * dsdx + dresultdt[i] * dtdx;
+    if (dresultdy)
+        for (int i = 0;  i < chans;  ++i)
+            ((float *)dresultdy)[i] = dresultds[i] * dsdy + dresultdt[i] * dtdy;
+    return ok;
+}
+
+extern "C" int
+osl_texture_alpha (void *sg_, const char *name, void *opt_, float s, float t,
+             float dsdx, float dtdx, float dsdy, float dtdy, int chans,
+             void *result, void *dresultdx, void *dresultdy,
+             void *alpha, void *dalphadx, void *dalphady)
+{
+    SingleShaderGlobal *sg = (SingleShaderGlobal *)sg_;
+    TextureSystem *texsys = sg->context->shadingsys().texturesys();
+    TextureOptions *opt = (TextureOptions *)opt_;
+    opt->nchannels = chans + 1;
+    float local_result[4], dresultds[4], dresultdt[4];
+    opt->dresultds = (dresultdx || dalphadx) ? dresultds : NULL;
+    opt->dresultdt = (dresultdy || dalphady) ? dresultdt : NULL;
+
+    bool ok = texsys->texture (USTR(name), *opt, s, t,
+                               dsdx, dtdx, dsdy, dtdy, local_result);
+
+    for (int i = 0;  i < chans;  ++i)
+        ((float *)result)[i] = local_result[i];
+    ((float *)alpha)[0] = local_result[chans];
+
+    // Correct our st texture space gradients into xy-space gradients
+    if (dresultdx)
+        for (int i = 0;  i < chans;  ++i)
+            ((float *)dresultdx)[i] = dresultds[i] * dsdx + dresultdt[i] * dtdx;
+    if (dresultdy)
+        for (int i = 0;  i < chans;  ++i)
+            ((float *)dresultdy)[i] = dresultds[i] * dsdy + dresultdt[i] * dtdy;
+    if (dalphadx)
+        ((float *)dalphadx)[0] = dresultds[chans] * dsdx + dresultdt[chans] * dtdx;
+    if (dalphady)
+        ((float *)dalphady)[0] = dresultds[chans] * dsdy + dresultdt[chans] * dtdy;
+
+    return ok;
 }

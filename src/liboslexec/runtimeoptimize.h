@@ -368,6 +368,10 @@ public:
         return llvm_void_ptr (llvm_get_pointer(sym, deriv));
     }
 
+    llvm::Value *llvm_void_ptr_null () {
+        return llvm::ConstantPointerNull::get (llvm_type_void_ptr());
+    }
+
     /// Return the LLVM type handle for a structure of the common group
     /// data that holds all the shader params.
     const llvm::Type *llvm_type_groupdata ();

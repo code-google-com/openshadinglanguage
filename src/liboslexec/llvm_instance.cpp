@@ -499,7 +499,7 @@ RuntimeOptimizer::llvm_get_pointer (const Symbol& sym, int deriv,
     bool has_derivs = sym.has_derivs();
     if (!has_derivs && deriv != 0) {
         // Return NULL for request for pointer to derivs that don't exist
-        return llvm_ptr_cast (llvm::ConstantPointerNull::get (llvm_type_void_ptr()),
+        return llvm_ptr_cast (llvm_void_ptr_null(),
                               llvm::PointerType::get (llvm_type(sym.typespec()), 0));
     }
 
@@ -2252,7 +2252,61 @@ LLVMGEN (llvm_gen_texture)
     opt = rop.llvm_void_ptr (opt);
     rop.llvm_call_function ("osl_texture_clear", opt);
 
-    // FIXME -- here is where we will handle the optional args
+    // Here is where we will handle the optional args
+    llvm::Value *alpha = NULL, *dalphadx = NULL, *dalphady = NULL;
+    for (int a = first_optional_arg;  a < op.nargs();  ++a) {
+        Symbol &Name (*rop.opargsym(op,a));
+        ASSERT (Name.typespec().is_string() &&
+                "optional texture token must be a string");
+        ASSERT (a+1 < op.nargs() && "malformed argument list for texture");
+        ustring name = *(ustring *)Name.data();
+
+        ++a;  // advance to next argument
+        Symbol &Val (*rop.opargsym(op,a));
+        TypeDesc valtype = Val.typespec().simpletype ();
+        
+        llvm::Value *val = rop.llvm_load_value (Val);
+        if (name == Strings::width && valtype == TypeDesc::FLOAT) {
+            rop.llvm_call_function ("osl_texture_set_swidth", opt, val);
+            rop.llvm_call_function ("osl_texture_set_twidth", opt, val);
+        } else if (name == Strings::swidth && valtype == TypeDesc::FLOAT) {
+            rop.llvm_call_function ("osl_texture_set_swidth", opt, val);
+        } else if (name == Strings::twidth && valtype == TypeDesc::FLOAT) {
+            rop.llvm_call_function ("osl_texture_set_twidth", opt, val);
+
+        } else if (name == Strings::blur && valtype == TypeDesc::FLOAT) {
+            rop.llvm_call_function ("osl_texture_set_sblur", opt, val);
+            rop.llvm_call_function ("osl_texture_set_tblur", opt, val);
+        } else if (name == Strings::sblur && valtype == TypeDesc::FLOAT) {
+            rop.llvm_call_function ("osl_texture_set_sblur", opt, val);
+        } else if (name == Strings::tblur && valtype == TypeDesc::FLOAT) {
+            rop.llvm_call_function ("osl_texture_set_tblur", opt, val);
+
+        } else if (name == Strings::wrap && valtype == TypeDesc::STRING) {
+            rop.llvm_call_function ("osl_texture_set_swrap", opt, val);
+            rop.llvm_call_function ("osl_texture_set_twrap", opt, val);
+        } else if (name == Strings::swrap && valtype == TypeDesc::STRING) {
+            rop.llvm_call_function ("osl_texture_set_swrap", opt, val);
+        } else if (name == Strings::twrap && valtype == TypeDesc::STRING) {
+            rop.llvm_call_function ("osl_texture_set_twrap", opt, val);
+
+        } else if (name == Strings::firstchannel && valtype == TypeDesc::INT) {
+            rop.llvm_call_function ("osl_texture_set_firstchannel", opt, val);
+        } else if (name == Strings::fill && valtype == TypeDesc::FLOAT) {
+            rop.llvm_call_function ("osl_texture_set_fill", opt, val);
+
+        } else if (name == Strings::alpha && valtype == TypeDesc::FLOAT) {
+            alpha = rop.llvm_get_pointer (Val);
+            if (Val.has_derivs()) {
+                dalphadx = rop.llvm_get_pointer (Val, 1);
+                dalphady = rop.llvm_get_pointer (Val, 2);
+            }
+        } else {
+            rop.shadingsys().error ("Unknown texture optional argument: \"%s\", <%s> (%s:%d)",
+                                    name.c_str(), valtype.c_str(),
+                                    op.sourcefile().c_str(), op.sourceline());
+        }
+    }
 
     // Now call the osl_texture function, passing the options and all the
     // explicit args like texture coordinates.
@@ -2278,7 +2332,14 @@ LLVMGEN (llvm_gen_texture)
     args.push_back (rop.llvm_void_ptr (rop.llvm_get_pointer (Result, 0)));
     args.push_back (rop.llvm_void_ptr (rop.llvm_get_pointer (Result, 1)));
     args.push_back (rop.llvm_void_ptr (rop.llvm_get_pointer (Result, 2)));
-    rop.llvm_call_function ("osl_texture", &args[0], (int)args.size());
+    if (alpha) {
+        args.push_back (rop.llvm_void_ptr (alpha));
+        args.push_back (rop.llvm_void_ptr (dalphadx ? dalphadx : rop.llvm_void_ptr_null()));
+        args.push_back (rop.llvm_void_ptr (dalphady ? dalphady : rop.llvm_void_ptr_null()));
+        rop.llvm_call_function ("osl_texture_alpha", &args[0], (int)args.size());
+    } else {
+        rop.llvm_call_function ("osl_texture", &args[0], (int)args.size());
+    }
     return true;
 }
 
