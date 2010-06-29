@@ -509,14 +509,11 @@ RuntimeOptimizer::llvm_get_pointer (const Symbol& sym, int deriv,
     // right element.
     TypeDesc t = sym.typespec().simpletype();
     if (t.arraylen || has_derivs) {
-        if (arrayindex) {
-            if (has_derivs) {
-                arrayindex = builder().CreateMul (arrayindex, llvm_constant(3));
-                arrayindex = builder().CreateAdd (arrayindex, llvm_constant(deriv));
-            }
-        } else {
-            arrayindex = llvm_constant(deriv);
-        }
+        int d = deriv * std::max(1,t.arraylen);
+        if (arrayindex)
+            arrayindex = builder().CreateAdd (arrayindex, llvm_constant(d));
+        else
+            arrayindex = llvm_constant(d);
         result = builder().CreateGEP (result, arrayindex);
     }
 
