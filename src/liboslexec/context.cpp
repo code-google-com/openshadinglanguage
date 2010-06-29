@@ -344,9 +344,9 @@ ShadingContext::symbol (ShaderUse use, ustring name)
     ShaderGroup &sgroup (attribs()->shadergroup (use));
     if (shadingsys().use_llvm() && sgroup.llvm_compiled_version()) {
         for (int layer = (int)nlayers-1;  layer >= 0;  --layer) {
-            Symbol *sym = sgroup[layer]->symbol (name);
-            if (sym)
-                return sym;
+            int symidx = sgroup[layer]->findsymbol (name);
+            if (symidx >= 0)
+                return sgroup[layer]->symbol (symidx);
         }
     } else {
         ASSERT(nlayers <= m_exec[use].size()); 
