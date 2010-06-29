@@ -1241,3 +1241,120 @@ osl_texture_alpha (void *sg_, const char *name, void *opt_, float s, float t,
 
     return ok;
 }
+
+
+
+inline int osl_get_attribute(void *sg_,
+                             int   dest_derivs,
+                             void *obj_name_,
+                             void *attr_name_,
+                             int   array_lookup,
+                             int   index,
+                             const TypeDesc &attr_type,
+                             void *attr_dest)
+{
+    SingleShaderGlobal *sg   = (SingleShaderGlobal *)sg_;
+    const ustring &obj_name  = USTR(obj_name_);
+    const ustring &attr_name = USTR(attr_name_);
+
+    if (array_lookup)
+        return sg->context->renderer()->get_array_attribute(sg->renderstate,  
+                                                  dest_derivs,
+                                                  obj_name,
+                                                  attr_type,
+                                                  attr_name,
+                                                  index,
+                                                  attr_dest);
+    else
+        return sg->context->renderer()->get_attribute(sg->renderstate,  
+                                                  dest_derivs,
+                                                  obj_name,
+                                                  attr_type,
+                                                  attr_name,
+                                                  attr_dest);
+}
+
+extern "C" int osl_get_attribute_i(void *sg_,
+                                   int   dest_derivs,
+                                   void *obj_name_,
+                                   void *attr_name_,
+                                   int   array_lookup,
+                                   int   index,
+                                   void *dest)
+{
+    return osl_get_attribute (sg_, dest_derivs, obj_name_, attr_name_,
+                              array_lookup, index, TypeDesc::TypeInt, dest);   
+}
+
+extern "C" int osl_get_attribute_f(void *sg_,
+                                   int   dest_derivs,
+                                   void *obj_name_,
+                                   void *attr_name_,
+                                   int   array_lookup,
+                                   int   index,
+                                   void *dest)
+{
+    return osl_get_attribute (sg_, dest_derivs, obj_name_, attr_name_,
+                              array_lookup, index, TypeDesc::TypeFloat, dest);   
+}
+
+extern "C" int osl_get_attribute_v(void *sg_,
+                                   int   dest_derivs,
+                                   void *obj_name_,
+                                   void *attr_name_,
+                                   int   array_lookup,
+                                   int   index,
+                                   void *dest)
+{
+    return osl_get_attribute (sg_, dest_derivs, obj_name_, attr_name_,
+                              array_lookup, index, TypeDesc::TypeVector, dest);   
+}
+
+extern "C" int osl_get_attribute_n(void *sg_,
+                                   int   dest_derivs,
+                                   void *obj_name_,
+                                   void *attr_name_,
+                                   int   array_lookup,
+                                   int   index,
+                                   void *dest)
+{
+    return osl_get_attribute (sg_, dest_derivs, obj_name_, attr_name_,
+                              array_lookup, index, TypeDesc::TypeNormal, dest);   
+}
+
+extern "C" int osl_get_attribute_p(void *sg_,
+                                   int   dest_derivs,
+                                   void *obj_name_,
+                                   void *attr_name_,
+                                   int   array_lookup,
+                                   int   index,
+                                   void *dest)
+{
+    return osl_get_attribute (sg_, dest_derivs, obj_name_, attr_name_,
+                              array_lookup, index, TypeDesc::TypePoint, dest);   
+}
+
+extern "C" int osl_get_attribute_m(void *sg_,
+                                   int   dest_derivs,
+                                   void *obj_name_,
+                                   void *attr_name_,
+                                   int   array_lookup,
+                                   int   index,
+                                   void *dest)
+{
+    return osl_get_attribute (sg_, dest_derivs, obj_name_, attr_name_,
+                              array_lookup, index, TypeDesc::TypeMatrix, dest);   
+}
+
+extern "C" int osl_get_attribute_s(void *sg_,
+                                   int   dest_derivs,
+                                   void *obj_name_,
+                                   void *attr_name_,
+                                   int   array_lookup,
+                                   int   index,
+                                   void *dest)
+{
+    return osl_get_attribute (sg_, dest_derivs, obj_name_, attr_name_,
+                              array_lookup, index, TypeDesc::TypeString, dest);   
+}
+

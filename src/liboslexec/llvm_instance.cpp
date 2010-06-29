@@ -2345,6 +2345,100 @@ LLVMGEN (llvm_gen_texture)
 
 
 
+LLVMGEN (llvm_gen_getattribute)
+{
+    // getattribute() has four "flavors":
+    //   * getattribute (attribute_name, value)
+    //   * getattribute (attribute_name, index, value)
+    //   * getattribute (object, attribute_name, value)
+    //   * getattribute (object, attribute_name, index, value)
+    Opcode &op (rop.inst()->ops()[opnum]);
+
+    DASSERT (op.nargs() >= 3 && op.nargs() <= 5);
+
+    bool object_lookup = false;
+    bool array_lookup  = false;
+
+    // slot indices when (nargs==3)
+    int result_slot = 0; // never changes
+    int attrib_slot = 1;
+    int object_slot = 0; // initially not used
+    int index_slot  = 0; // initially not used
+    int dest_slot   = 2;
+
+    // figure out which "flavor" of getattribute() to use
+    if (op.nargs() == 5) {
+        object_slot = 1;
+        attrib_slot = 2;
+        index_slot  = 3;
+        dest_slot   = 4;
+        array_lookup  = true;
+        object_lookup = true;
+    }
+    else if (op.nargs() == 4) {
+        if (rop.opargsym (op, 2)->typespec().is_int()) {
+            attrib_slot = 1;
+            index_slot  = 2;
+            dest_slot   = 3;
+            array_lookup = true;
+        }
+        else {
+            object_slot = 1;
+            attrib_slot = 2;
+            dest_slot   = 3;
+            object_lookup = true;
+        }
+    }
+
+    Symbol& Result      = *rop.opargsym (op, result_slot);
+    Symbol& ObjectName  = *rop.opargsym (op, object_slot); // might be aliased to Result
+    Symbol& Index       = *rop.opargsym (op, index_slot);  // might be aliased to Result
+    Symbol& Attribute   = *rop.opargsym (op, attrib_slot);
+    Symbol& Destination = *rop.opargsym (op, dest_slot);
+
+    TypeDesc attribute_type = Destination.typespec().simpletype();
+    bool     dest_derivs    = Destination.has_derivs();
+
+    DASSERT (!Result.typespec().is_closure()    && !ObjectName.typespec().is_closure() && 
+             !Attribute.typespec().is_closure() && !Index.typespec().is_closure()      && 
+             !Destination.typespec().is_closure());
+
+    std::string name = std::string("osl_get_attribute_");
+
+    if (Destination.typespec().is_float())
+        name += "f";
+    else if (Destination.typespec().is_point())
+        name += "p";
+    else if (Destination.typespec().is_vector())
+        name += "v";
+    else if (Destination.typespec().is_normal())
+        name += "n";
+    else if (Destination.typespec().is_matrix())
+        name += "m";
+    else if (Destination.typespec().is_string())
+        name += "s";
+    else if (Destination.typespec().is_int())
+        name += "i";
+        else ASSERT (0);
+
+    std::vector<llvm::Value *> args;
+    args.push_back (rop.sg_void_ptr());
+    args.push_back (rop.llvm_constant ((int)dest_derivs));
+    args.push_back (object_lookup ? rop.llvm_load_value (ObjectName) :
+                                    rop.llvm_constant (ustring()));
+    args.push_back (rop.llvm_load_value (Attribute));
+    args.push_back (rop.llvm_constant ((int)array_lookup));
+    args.push_back (rop.llvm_load_value (Index));
+    args.push_back (rop.llvm_void_ptr (Destination));
+
+    llvm::Value *r = rop.llvm_call_function (name.c_str(), &args[0], args.size());
+    rop.llvm_store_value (r, Result);
+
+    return true;
+}
+
+
+
 void
 RuntimeOptimizer::llvm_assign_initial_value (const Symbol& sym)
 {
@@ -2457,7 +2551,7 @@ initialize_llvm_generator_table ()
     INIT2 (format, llvm_gen_printf);
     // INIT (fresnel);
     INIT2 (ge, llvm_gen_compare_op);
-    // INIT (getattribute);
+    INIT (getattribute);
     // INIT (getmessage);
     // INIT (gettextureinfo);
     INIT2 (gt, llvm_gen_compare_op);
