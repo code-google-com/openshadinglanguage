@@ -102,6 +102,7 @@ using namespace OSL::pvt;
 #include <dual.h>
 #include <dual_vec.h>
 #include <OpenEXR/ImathFun.h>
+#include <OpenImageIO/fmath.h>
 
 // Handy re-casting macros// is).
 #define USTR(cstr) (*((ustring *)&cstr))
@@ -313,6 +314,107 @@ MAKE_BINARY_PERCOMPONENT_OP (atan2, std::atan2, atan2)
 MAKE_UNARY_PERCOMPONENT_OP (sinh, std::sinh, sinh)
 MAKE_UNARY_PERCOMPONENT_OP (cosh, std::cosh, cosh)
 MAKE_UNARY_PERCOMPONENT_OP (tanh, std::tanh, tanh)
+
+extern "C" void osl_sincos_fff(float x, void *s_, void *c_)
+{
+    sincos(x, (float *)s_, (float *)c_);
+}
+
+extern "C" void osl_sincos_dfdff(void *x_, void *s_, void *c_)
+{
+    Dual2<float> &x      = DFLOAT(x_);
+    Dual2<float> &sine   = DFLOAT(s_);
+    float        &cosine = *(float *)c_;
+
+    float s_f, c_f;
+    sincos(x.val(), &s_f, &c_f);
+    float xdx = x.dx(), xdy = x.dy(); // x might be aliased
+    sine   = Dual2<float>(s_f,  c_f * xdx,  c_f * xdy);
+    cosine = c_f;
+}
+
+extern "C" void osl_sincos_dffdf(void *x_, void *s_, void *c_)
+{
+    Dual2<float> &x      = DFLOAT(x_);
+    float        &sine   = *(float *)s_;
+    Dual2<float> &cosine = DFLOAT(c_);
+
+    float s_f, c_f;
+    sincos(x.val(), &s_f, &c_f);
+    float xdx = x.dx(), xdy = x.dy(); // x might be aliased
+    sine   = s_f;
+    cosine = Dual2<float>(c_f, -s_f * xdx, -s_f * xdy);
+}
+
+extern "C" void osl_sincos_dfdfdf(void *x_, void *s_, void *c_)
+{
+    Dual2<float> &x      = DFLOAT(x_);
+    Dual2<float> &sine   = DFLOAT(s_);
+    Dual2<float> &cosine = DFLOAT(c_);
+
+    float s_f, c_f;
+    sincos(x.val(), &s_f, &c_f);
+    float xdx = x.dx(), xdy = x.dy(); // x might be aliased
+    sine   = Dual2<float>(s_f,  c_f * xdx,  c_f * xdy);
+    cosine = Dual2<float>(c_f, -s_f * xdx, -s_f * xdy);
+}
+
+extern "C" void osl_sincos_vvv(void *x_, void *s_, void *c_)
+{
+    Vec3 &x      = VEC(x_);
+    Vec3 &sine   = VEC(s_);
+    Vec3 &cosine = VEC(c_);
+
+    for (int i = 0; i < 3; i++)
+        sincos(VEC(x_)[i], &VEC(s_)[i], &VEC(c_)[i]);
+}
+
+extern "C" void osl_sincos_dvdvv(void *x_, void *s_, void *c_)
+{
+    Dual2<Vec3> &x      = DVEC(x_);
+    Dual2<Vec3> &sine   = DVEC(s_);
+    Vec3        &cosine = VEC(c_);
+
+    for (int i = 0; i < 3; i++) {
+        float s_f, c_f;
+        sincos(x.val()[i], &s_f, &c_f);
+        float xdx = x.dx()[i], xdy = x.dy()[i]; // x might be aliased
+        sine.val()[i] = s_f; sine.dx()[i] =  c_f * xdx; sine.dy()[i] =  c_f * xdy;
+        cosine[i] = c_f;
+    }
+}
+
+extern "C" void osl_sincos_dvvdv(void *x_, void *s_, void *c_)
+{
+    Dual2<Vec3> &x      = DVEC(x_);
+    Vec3        &sine   = VEC(s_);
+    Dual2<Vec3> &cosine = DVEC(c_);
+
+    for (int i = 0; i < 3; i++) {
+        float s_f, c_f;
+        sincos(x.val()[i], &s_f, &c_f);
+        float xdx = x.dx()[i], xdy = x.dy()[i]; // x might be aliased
+        sine[i] = s_f;
+        cosine.val()[i] = c_f; cosine.dx()[i] = -s_f * xdx; cosine.dy()[i] = -s_f * xdy;
+    }
+}
+
+extern "C" void osl_sincos_dvdvdv(void *x_, void *s_, void *c_)
+{
+    Dual2<Vec3> &x      = DVEC(x_);
+    Dual2<Vec3> &sine   = DVEC(s_);
+    Dual2<Vec3> &cosine = DVEC(c_);
+
+    for (int i = 0; i < 3; i++) {
+        float s_f, c_f;
+        sincos(x.val()[i], &s_f, &c_f);
+        float xdx = x.dx()[i], xdy = x.dy()[i]; // x might be aliased
+          sine.val()[i] = s_f;   sine.dx()[i] =  c_f * xdx;   sine.dy()[i] =  c_f * xdy;
+        cosine.val()[i] = c_f; cosine.dx()[i] = -s_f * xdx; cosine.dy()[i] = -s_f * xdy;
+    }
+}
+
+
 
 inline float safe_log (float f) {
     if (f <= 0.0f)

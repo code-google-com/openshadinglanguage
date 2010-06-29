@@ -2124,7 +2124,37 @@ LLVMGEN (llvm_gen_generic)
     return true;
 }
 
+LLVMGEN (llvm_gen_sincos)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Theta   = *rop.opargsym (op, 0);
+    Symbol& Sin_out = *rop.opargsym (op, 1);
+    Symbol& Cos_out = *rop.opargsym (op, 2);
+    std::vector<llvm::Value *> valargs;
+    bool theta_deriv   = Theta.has_derivs();
+    bool result_derivs = (Sin_out.has_derivs() || Cos_out.has_derivs());
 
+    std::string name = std::string("osl_sincos_");
+    for (int i = 0;  i < op.nargs();  ++i) {
+        Symbol *s (rop.opargsym (op, i));
+        if (s->has_derivs() && result_derivs  && theta_deriv)
+            name += "d";
+        if (s->typespec().is_float())
+            name += "f";
+        else if (s->typespec().is_triple())
+            name += "v";
+        else ASSERT (0);
+    }
+    // push back llvm arguments
+    valargs.push_back ( (theta_deriv && result_derivs) || Theta.typespec().is_triple() ? 
+          rop.llvm_void_ptr (Theta) : rop.llvm_load_value (Theta));
+    valargs.push_back (rop.llvm_void_ptr (Sin_out));
+    valargs.push_back (rop.llvm_void_ptr (Cos_out));
+
+    rop.llvm_call_function (name.c_str(), &valargs[0], 3);
+
+    return true;
+}
 
 LLVMGEN (llvm_gen_if)
 {
@@ -2427,7 +2457,7 @@ initialize_llvm_generator_table ()
     INIT2 (shr, llvm_gen_bitwise_binary_op);
     INIT2 (sign, llvm_gen_generic);
     INIT2 (sin, llvm_gen_generic);
-    // INIT (sincos);
+    INIT (sincos);
     INIT2 (sinh, llvm_gen_generic);
     INIT2 (smoothstep, llvm_gen_generic);
     // INIT (snoise);
