@@ -96,6 +96,7 @@ examples), as you are just coding in C++, but there are some rules:
 #include "oslconfig.h"
 #include "oslclosure.h"
 #include "oslexec_pvt.h"
+#include "noiseimpl.h"
 using namespace OSL;
 using namespace OSL::pvt;
 
@@ -1124,6 +1125,75 @@ osl_regex_impl (void *sg_, const char *subject_, void *results, int nresults,
 }
 
 
+
+
+/***********************************************************************
+ * noise routines
+ */
+
+extern "C" float osl_cellnoise_ff (float x)
+{
+    CellNoise cellnoise(NULL);
+    float r;
+    cellnoise (r, x);
+    return r;
+}
+
+extern "C" float osl_cellnoise_fff (float x, float y)
+{
+    CellNoise cellnoise(NULL);
+    float r;
+    cellnoise (r, x, y);
+    return r;
+}
+
+extern "C" float osl_cellnoise_fv (void *x)
+{
+    CellNoise cellnoise(NULL);
+    float r;
+    cellnoise (r, VEC(x));
+    return r;
+}
+
+extern "C" float osl_cellnoise_fvf (void *x, float y)
+{
+    CellNoise cellnoise(NULL);
+    float r;
+    cellnoise (r, VEC(x), y);
+    return r;
+}
+
+
+extern "C" float osl_cellnoise_vf (void *r, float x)
+{
+    CellNoise cellnoise(NULL);
+    cellnoise (VEC(r), x);
+}
+
+extern "C" float osl_cellnoise_vff (void *r, float x, float y)
+{
+    CellNoise cellnoise(NULL);
+    cellnoise (VEC(r), x, y);
+}
+
+extern "C" float osl_cellnoise_vv (void *r, void *x)
+{
+    CellNoise cellnoise(NULL);
+    cellnoise (VEC(r), VEC(x));
+}
+
+extern "C" float osl_cellnoise_vvf (void *r, void *x, float y)
+{
+    CellNoise cellnoise(NULL);
+    cellnoise (VEC(r), VEC(x), y);
+}
+
+
+
+
+/***********************************************************************
+ * texture routines
+ */
 
 extern "C" void
 osl_texture_clear (void *opt)

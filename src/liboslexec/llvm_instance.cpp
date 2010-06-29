@@ -111,6 +111,7 @@ static ustring op_abs("abs");
 static ustring op_bitand("bitand");
 static ustring op_bitor("bitor");
 static ustring op_ceil("ceil");
+static ustring op_cellnoise("cellnoise");
 static ustring op_color("color");
 static ustring op_compl("compl");
 static ustring op_dowhile("dowhile");
@@ -2085,7 +2086,7 @@ LLVMGEN (llvm_gen_generic)
     if (any_deriv_args)
         if (op.opname() == op_floor || op.opname() == op_ceil ||
             op.opname() == op_round || op.opname() == op_step ||
-            op.opname() == op_trunc)
+            op.opname() == op_trunc || op.opname() == op_cellnoise)
             any_deriv_args = false;
 
     std::string name = std::string("osl_") + op.opname().string() + "_";
@@ -2508,7 +2509,7 @@ initialize_llvm_generator_table ()
     // INIT (bssrdf_cubic);
     // INIT (calculatenormal);
     INIT2 (ceil, llvm_gen_generic);
-    // INIT (cellnoise);
+    INIT2 (cellnoise, llvm_gen_generic);
     INIT (clamp);
     // INIT (cloth);
     // INIT (cloth_specular);
