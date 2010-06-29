@@ -415,6 +415,15 @@ public:
     llvm::Value *llvm_call_function (const char *name,
                                      llvm::Value **args, int nargs);
 
+    llvm::Value *llvm_call_function (const char *name, llvm::Value *arg0) {
+        return llvm_call_function (name, &arg0, 1);
+    }
+    llvm::Value *llvm_call_function (const char *name, llvm::Value *arg0,
+                                     llvm::Value *arg1) {
+        llvm::Value *args[2];
+        args[0] = arg0;  args[1] = arg1;
+        return llvm_call_function (name, args, 2);
+    }
 
     /// Generate code for a call to the named function with the given
     /// arg list as symbols -- float & ints will be passed by value,

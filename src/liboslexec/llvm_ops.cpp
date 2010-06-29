@@ -1020,3 +1020,78 @@ osl_regex_impl (void *sg_, const char *subject_, void *results, int nresults,
                          : boost::regex_search (subject, regex);
     }
 }
+
+
+
+extern "C" void
+osl_texture_clear (void *opt)
+{
+    // Use "placement new" to clear the texture options
+    new (opt) TextureOptions;
+}
+
+
+extern "C" void
+osl_texture_set_firstchannel (void *opt, int x)
+{
+    ((TextureOptions *)opt)->firstchannel = x;
+}
+
+
+extern "C" void
+osl_texture_set_swrap (void *opt, const char *x)
+{
+    ((TextureOptions *)opt)->swrap = TextureOptions::decode_wrapmode(x);
+}
+
+extern "C" void
+osl_texture_set_twrap (void *opt, const char *x)
+{
+    ((TextureOptions *)opt)->twrap = TextureOptions::decode_wrapmode(x);
+}
+
+extern "C" void
+osl_texture_set_sblur (void *opt, float x)
+{
+    ((TextureOptions *)opt)->sblur = x;
+}
+
+extern "C" void
+osl_texture_set_tblur (void *opt, float x)
+{
+    ((TextureOptions *)opt)->tblur = x;
+}
+
+extern "C" void
+osl_texture_set_swidth (void *opt, float x)
+{
+    ((TextureOptions *)opt)->swidth = x;
+}
+
+extern "C" void
+osl_texture_set_twidth (void *opt, float x)
+{
+    ((TextureOptions *)opt)->twidth = x;
+}
+
+extern "C" void
+osl_texture_set_fill (void *opt, float x)
+{
+    ((TextureOptions *)opt)->fill = x;
+}
+
+extern "C" int
+osl_texture (void *sg_, const char *name, void *opt_, float s, float t,
+             float dsdx, float dtdx, float dsdy, float dtdy, int chans,
+             void *result, void *dresultds, void *dresultdt)
+{
+    SingleShaderGlobal *sg = (SingleShaderGlobal *)sg_;
+    TextureSystem *texsys = sg->context->shadingsys().texturesys();
+    TextureOptions *opt = (TextureOptions *)opt_;
+    opt->dresultds = (float *)dresultds;
+    opt->dresultdt = (float *)dresultdt;
+    opt->nchannels = chans;
+    return texsys->texture (USTR(name), *opt, s, t,
+                            dsdx, dtdx, dsdy, dtdy, (float *)result);
+    return 0;
+}

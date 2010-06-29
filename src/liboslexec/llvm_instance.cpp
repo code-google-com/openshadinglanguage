@@ -497,8 +497,11 @@ RuntimeOptimizer::llvm_get_pointer (const Symbol& sym, int deriv,
                                     llvm::Value *arrayindex)
 {
     bool has_derivs = sym.has_derivs();
-    if (!has_derivs && deriv != 0)
-        ASSERT (0 && "llvm_get_pointer: ask for derivs when there aren't any");
+    if (!has_derivs && deriv != 0) {
+        // Return NULL for request for pointer to derivs that don't exist
+        return llvm_ptr_cast (llvm::ConstantPointerNull::get (llvm_type_void_ptr()),
+                              llvm::PointerType::get (llvm_type(sym.typespec()), 0));
+    }
 
     // Start with the initial pointer to the variable's memory location
     llvm::Value* result = getLLVMSymbolBase (sym);
@@ -2194,6 +2197,63 @@ LLVMGEN (llvm_gen_loop_op)
 
 
 
+LLVMGEN (llvm_gen_texture)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol &Result = *rop.opargsym (op, 0);
+    Symbol &Filename = *rop.opargsym (op, 1);
+    Symbol &S = *rop.opargsym (op, 2);
+    Symbol &T = *rop.opargsym (op, 3);
+
+    bool user_derivs = false;
+    int first_optional_arg = 4;
+    if (op.nargs() > 4 && rop.opargsym(op,4)->typespec().is_float()) {
+        user_derivs = true;
+        first_optional_arg = 8;
+        DASSERT (rop.opargsym(op,5)->typespec().is_float());
+        DASSERT (rop.opargsym(op,6)->typespec().is_float());
+        DASSERT (rop.opargsym(op,7)->typespec().is_float());
+    }
+
+    // Reserve space for the TextureOptions, with alignment
+    size_t tosize = (sizeof(TextureOptions)+sizeof(char*)-1) / sizeof(char*);
+    llvm::Value* opt = rop.builder().CreateAlloca(rop.llvm_type_void_ptr(),
+                                                  rop.llvm_constant((int)tosize));
+    opt = rop.llvm_void_ptr (opt);
+    rop.llvm_call_function ("osl_texture_clear", opt);
+
+    // FIXME -- here is where we will handle the optional args
+
+    // Now call the osl_texture function, passing the options and all the
+    // explicit args like texture coordinates.
+    std::vector<llvm::Value *> args;
+    args.push_back (rop.sg_void_ptr());
+    args.push_back (rop.llvm_load_value (Filename));
+    args.push_back (opt);
+    args.push_back (rop.llvm_load_value (S));
+    args.push_back (rop.llvm_load_value (T));
+    if (user_derivs) {
+        args.push_back (rop.llvm_load_value (*rop.opargsym (op, 4)));
+        args.push_back (rop.llvm_load_value (*rop.opargsym (op, 5)));
+        args.push_back (rop.llvm_load_value (*rop.opargsym (op, 6)));
+        args.push_back (rop.llvm_load_value (*rop.opargsym (op, 7)));
+    } else {
+        // Auto derivs of S and T
+        args.push_back (rop.llvm_load_value (S, 1));
+        args.push_back (rop.llvm_load_value (T, 1));
+        args.push_back (rop.llvm_load_value (S, 2));
+        args.push_back (rop.llvm_load_value (T, 2));
+    }
+    args.push_back (rop.llvm_constant ((int)Result.typespec().aggregate()));
+    args.push_back (rop.llvm_void_ptr (rop.llvm_get_pointer (Result, 0)));
+    args.push_back (rop.llvm_void_ptr (rop.llvm_get_pointer (Result, 1)));
+    args.push_back (rop.llvm_void_ptr (rop.llvm_get_pointer (Result, 2)));
+    rop.llvm_call_function ("osl_texture", &args[0], (int)args.size());
+    return true;
+}
+
+
+
 void
 RuntimeOptimizer::llvm_assign_initial_value (const Symbol& sym)
 {
@@ -2382,7 +2442,7 @@ initialize_llvm_generator_table ()
     // INIT (surfacearea);
     INIT2 (tan, llvm_gen_generic);
     INIT2 (tanh, llvm_gen_generic);
-    // INIT (texture);
+    INIT (texture);
     INIT2 (transform,  llvm_gen_generic);
     INIT2 (transformn, llvm_gen_generic);
     INIT2 (transformv, llvm_gen_generic);
