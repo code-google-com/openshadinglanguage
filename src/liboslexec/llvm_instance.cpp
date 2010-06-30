@@ -2125,6 +2125,8 @@ LLVMGEN (llvm_gen_generic)
     return true;
 }
 
+
+
 LLVMGEN (llvm_gen_sincos)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
@@ -2156,6 +2158,8 @@ LLVMGEN (llvm_gen_sincos)
 
     return true;
 }
+
+
 
 LLVMGEN (llvm_gen_if)
 {
@@ -2340,6 +2344,61 @@ LLVMGEN (llvm_gen_texture)
         rop.llvm_call_function ("osl_texture_alpha", &args[0], (int)args.size());
     } else {
         rop.llvm_call_function ("osl_texture", &args[0], (int)args.size());
+    }
+    return true;
+}
+
+
+
+// pnoise and psnoise -- we can't use llvm_gen_generic because of the
+// special case that the periods should never pass derivatives.
+LLVMGEN (llvm_gen_pnoise)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+
+    // N.B. we don't use the derivatives of periods.  There are as many
+    // period arguments as position arguments, and argument 0 is the
+    // result.  So f=pnoise(f,f) => firstperiod = 2; f=pnoise(v,f,v,f)
+    // => firstperiod = 3.
+    int firstperiod = (op.nargs() - 1) / 2 + 1;
+
+    Symbol& Result  = *rop.opargsym (op, 0);
+    std::vector<const Symbol *> args;
+    bool any_deriv_args = false;
+    for (int i = 0;  i < op.nargs();  ++i) {
+        Symbol *s (rop.opargsym (op, i));
+        args.push_back (s);
+        any_deriv_args |= (i > 0 && i < firstperiod &&
+                           s->has_derivs() && !s->typespec().is_matrix());
+    }
+
+    std::string name = std::string("osl_") + op.opname().string() + "_";
+    for (int i = 0;  i < op.nargs();  ++i) {
+        Symbol *s (rop.opargsym (op, i));
+        if (any_deriv_args && i < firstperiod && Result.has_derivs() &&
+                s->has_derivs() && !s->typespec().is_matrix())
+            name += "d";
+        if (s->typespec().is_float())
+            name += "f";
+        else if (s->typespec().is_triple())
+            name += "v";
+        else ASSERT (0);
+    }
+
+    if (! Result.has_derivs() || ! any_deriv_args) {
+        // Don't compute derivs -- either not needed or not provided in args
+        if (Result.typespec().aggregate() == TypeDesc::SCALAR) {
+            llvm::Value *r = rop.llvm_call_function (name.c_str(),
+                                                     &(args[1]), op.nargs()-1);
+            rop.llvm_store_value (r, Result);
+        } else {
+            rop.llvm_call_function (name.c_str(), &(args[0]), op.nargs());
+        }
+        rop.llvm_zero_derivs (Result);
+    } else {
+        // Cases with derivs
+        ASSERT (Result.has_derivs() && any_deriv_args);
+        rop.llvm_call_function (name.c_str(), &(args[0]), op.nargs(), true);
     }
     return true;
 }
@@ -2595,11 +2654,11 @@ initialize_llvm_generator_table ()
     // INIT (or);
     // INIT (phong);
     // INIT (phong_ramp);
-    // INIT (pnoise);
+    INIT2 (pnoise, llvm_gen_pnoise);
     INIT2 (point, llvm_gen_construct_triple);
     INIT2 (pow, llvm_gen_generic);
     INIT (printf);
-    // INIT (psnoise);
+    INIT2 (psnoise, llvm_gen_pnoise);
     INIT2 (radians, llvm_gen_generic);
     // INIT (reflect);
     // INIT (reflection);

@@ -1279,6 +1279,151 @@ NOISE_IMPL_DERIV (snoise, SNoise)
 
 
 
+#define PNOISE_IMPL(opname,implname)                                    \
+    extern "C" float osl_ ##opname## _fff (float x, float px) {         \
+    implname impl(NULL);                                                \
+    float r;                                                            \
+    impl (r, x, px);                                                    \
+    return r;                                                           \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _fffff (float x, float y, float px, float py) { \
+    implname impl(NULL);                                                \
+    float r;                                                            \
+    impl (r, x, y, px, py);                                             \
+    return r;                                                           \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _fvv (void *x, void *px) {             \
+    implname impl(NULL);                                                \
+    float r;                                                            \
+    impl (r, VEC(x), VEC(px));                                          \
+    return r;                                                           \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _fvfvf (void *x, float y, void *px, float py) { \
+    implname impl(NULL);                                                \
+    float r;                                                            \
+    impl (r, VEC(x), y, VEC(px), py);                                   \
+    return r;                                                           \
+}                                                                       \
+                                                                        \
+                                                                        \
+extern "C" float osl_ ##opname## _vff (void *r, float x, float px) {    \
+    implname impl(NULL);                                                \
+    impl (VEC(r), x, px);                                               \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _vffff (void *r, float x, float y, float px, float py) { \
+    implname impl(NULL);                                                \
+    impl (VEC(r), x, y, px, py);                                        \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _vvv (void *r, void *x, void *px) {    \
+    implname impl(NULL);                                                \
+    impl (VEC(r), VEC(x), VEC(px));                                     \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _vvfvf (void *r, void *x, float y, void *px, float py) { \
+    implname impl(NULL);                                                \
+    impl (VEC(r), VEC(x), y, VEC(px), py);                              \
+}
+
+
+
+
+
+#define PNOISE_IMPL_DERIV(opname,implname)                              \
+extern "C" float osl_ ##opname## _dfdff (void *r, void *x, float px) {  \
+    implname impl(NULL);                                                \
+    impl (DFLOAT(r), DFLOAT(x), px);                                    \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dfdfdfff (void *r, void *x, void *y, float px, float py) { \
+    implname impl(NULL);                                                \
+    impl (DFLOAT(r), DFLOAT(x), DFLOAT(y), px, py);                     \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dfdffff (void *r, void *x, float y, float px, float py) { \
+    implname impl(NULL);                                                \
+    impl (DFLOAT(r), DFLOAT(x), Dual2<float>(y), px, py);               \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dffdfff (void *r, float x, void *y, float px, float py) { \
+    implname impl(NULL);                                                \
+    impl (DFLOAT(r), Dual2<float>(x), DFLOAT(y), px, py);               \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dfdvv (void *r, void *x, void *px) {  \
+    implname impl(NULL);                                                \
+    impl (DFLOAT(r), DVEC(x), VEC(px));                                 \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dfdvdfvf (void *r, void *x, void *y, void *px, float py) { \
+    implname impl(NULL);                                                \
+    impl (DFLOAT(r), DVEC(x), DFLOAT(y), VEC(px), py);                  \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dfdvfvf (void *r, void *x, float y, void *px, float py) { \
+    implname impl(NULL);                                                \
+    impl (DFLOAT(r), DVEC(x), Dual2<float>(y), VEC(px), py);            \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dfvdfvf (void *r, void *x, void *y, void *px, float py) { \
+    implname impl(NULL);                                                \
+    impl (DFLOAT(r), Dual2<Vec3>(VEC(x)), DFLOAT(y), VEC(px), py);      \
+}                                                                       \
+                                                                        \
+                                                                        \
+extern "C" float osl_ ##opname## _dvdff (void *r, void *x, float px) {  \
+    implname impl(NULL);                                                \
+    impl (DVEC(r), DFLOAT(x), px);                                      \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dvdfdfff (void *r, void *x, void *y, float px, float py) { \
+    implname impl(NULL);                                                \
+    impl (DVEC(r), DFLOAT(x), DFLOAT(y), px, py);                       \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dvdffff (void *r, void *x, float y, float px, float py) { \
+    implname impl(NULL);                                                \
+    impl (DVEC(r), DFLOAT(x), Dual2<float>(y), px, py);                 \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dvfdfff (void *r, float x, void *y, float px, float py) { \
+    implname impl(NULL);                                                \
+    impl (DVEC(r), Dual2<float>(x), DFLOAT(y), px, py);                 \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dvdvv (void *r, void *x, void *px) {  \
+    implname impl(NULL);                                                \
+    impl (DVEC(r), DVEC(x), VEC(px));                                   \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dvdvdfvf (void *r, void *x, void *y, void *px, float py) { \
+    implname impl(NULL);                                                \
+    impl (DVEC(r), DVEC(x), DFLOAT(y), VEC(px), py);                    \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dvdvfvf (void *r, void *x, float y, float *px, float py) { \
+    implname impl(NULL);                                                \
+    impl (DVEC(r), DVEC(x), Dual2<float>(y), VEC(px), py);              \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dvvdfvf (void *r, void *x, void *px, void *y, float py) { \
+    implname impl(NULL);                                                \
+    impl (DVEC(r), Dual2<Vec3>(VEC(x)), DFLOAT(y), VEC(px), py);        \
+}
+
+
+PNOISE_IMPL (pnoise, PeriodicNoise)
+PNOISE_IMPL_DERIV (pnoise, PeriodicNoise)
+PNOISE_IMPL (psnoise, PeriodicSNoise)
+PNOISE_IMPL_DERIV (psnoise, PeriodicSNoise)
+
+
+
+
 /***********************************************************************
  * texture routines
  */
