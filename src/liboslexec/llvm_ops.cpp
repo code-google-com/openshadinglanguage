@@ -1709,3 +1709,50 @@ extern "C" int osl_iscameraray (void *sg_)
     return sg->iscameraray;
 }
 
+
+
+inline Vec3 calculatenormal(void *P_, bool flipHandedness)
+{
+    Dual2<Vec3> tmpP = DVEC(P_);
+    if (flipHandedness)
+        return tmpP.dy().cross( tmpP.dx());
+    else
+        return tmpP.dx().cross( tmpP.dy());
+}
+
+extern "C" void osl_calculatenormal(void *out, void *sg_, void *P_)
+{
+    SingleShaderGlobal *sg = (SingleShaderGlobal *)sg_;
+    Vec3 N = calculatenormal(P_, sg->flipHandedness);
+    // Don't normalize N
+    VEC(out) = N;
+}
+
+extern "C" float osl_area_fv(void *P_)
+{
+    Vec3 N = calculatenormal(P_, false);
+    return N.length();
+}
+
+
+
+inline float filter_width(float dx, float dy)
+{
+    return sqrtf(dx*dx + dy*dy);
+}
+
+extern "C" float osl_filterwidth_ff(void *x_)
+{
+    Dual2<float> x = DFLOAT(x_);
+    return filter_width(x.dx(), x.dy());
+}
+
+extern "C" float osl_filterwidth_vv(void *out, void *x_)
+{
+    Dual2<Vec3> x = DVEC(x_);
+
+    VEC(out).x = filter_width (x.dx().x, x.dy().x);   
+    VEC(out).y = filter_width (x.dx().y, x.dy().y);   
+    VEC(out).z = filter_width (x.dx().z, x.dy().z);   
+}
+

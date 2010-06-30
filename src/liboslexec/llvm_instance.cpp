@@ -2587,6 +2587,29 @@ LLVMGEN (llvm_gen_get_simple_SG_field)
 
 
 
+LLVMGEN (llvm_gen_calculatenormal)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+
+    DASSERT (op.nargs() == 1);
+
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& P      = *rop.opargsym (op, 1);
+
+    DASSERT (Result.typespec().is_triple() && P.typespec().is_triple &&
+             P.has_derivs());
+    
+    std::vector<llvm::Value *> args;
+    args.push_back (rop.llvm_void_ptr (Result));
+    args.push_back (rop.sg_void_ptr());
+    args.push_back (rop.llvm_void_ptr (P));
+    rop.llvm_call_function ("osl_calculatenormal", &args[0], args.size());
+    if (Result.has_derivs())
+        rop.llvm_zero_derivs (Result);
+    return true;
+}
+
+
 static std::map<ustring,OpLLVMGen> llvm_generator_table;
 
 
@@ -2607,7 +2630,7 @@ initialize_llvm_generator_table ()
     INIT (add);
     // INIT (and);
     // INIT (ashikhmin_velvet);
-    // INIT (area);
+    INIT2 (area, llvm_gen_generic);
     INIT (aref);
     INIT (arraylength);
     INIT2 (asin, llvm_gen_generic);
@@ -2618,7 +2641,7 @@ initialize_llvm_generator_table ()
     INIT2 (bitand, llvm_gen_bitwise_binary_op);
     INIT2 (bitor, llvm_gen_bitwise_binary_op);
     // INIT (bssrdf_cubic);
-    // INIT (calculatenormal);
+    INIT (calculatenormal);
     INIT2 (ceil, llvm_gen_generic);
     INIT2 (cellnoise, llvm_gen_generic);
     INIT (clamp);
@@ -2656,7 +2679,7 @@ initialize_llvm_generator_table ()
     // INIT (fakefur_diffuse);
     // INIT (fakefur_specular);
     // INIT (fakefur_skin);
-    // INIT (filterwidth);
+    INIT2 (filterwidth, llvm_gen_generic);
     INIT2 (floor, llvm_gen_generic);
     INIT2 (fmod, llvm_gen_mod);
     INIT2 (for, llvm_gen_loop_op);
