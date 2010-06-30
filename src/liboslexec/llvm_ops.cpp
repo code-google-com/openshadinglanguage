@@ -1131,63 +1131,151 @@ osl_regex_impl (void *sg_, const char *subject_, void *results, int nresults,
  * noise routines
  */
 
-extern "C" float osl_cellnoise_ff (float x)
-{
-    CellNoise cellnoise(NULL);
-    float r;
-    cellnoise (r, x);
-    return r;
+#define NOISE_IMPL(opname,implname)                                     \
+extern "C" float osl_ ##opname## _ff (float x) {                        \
+    implname impl(NULL);                                                \
+    float r;                                                            \
+    impl (r, x);                                                        \
+    return r;                                                           \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _fff (float x, float y) {              \
+    implname impl(NULL);                                                \
+    float r;                                                            \
+    impl (r, x, y);                                                     \
+    return r;                                                           \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _fv (void *x) {                        \
+    implname impl(NULL);                                                \
+    float r;                                                            \
+    impl (r, VEC(x));                                                   \
+    return r;                                                           \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _fvf (void *x, float y) {              \
+    implname impl(NULL);                                                \
+    float r;                                                            \
+    impl (r, VEC(x), y);                                                \
+    return r;                                                           \
+}                                                                       \
+                                                                        \
+                                                                        \
+extern "C" float osl_ ##opname## _vf (void *r, float x) {               \
+    implname impl(NULL);                                                \
+    impl (VEC(r), x);                                                   \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _vff (void *r, float x, float y) {     \
+    implname impl(NULL);                                                \
+    impl (VEC(r), x, y);                                                \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _vv (void *r, void *x) {               \
+    implname impl(NULL);                                                \
+    impl (VEC(r), VEC(x));                                              \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _vvf (void *r, void *x, float y) {     \
+    implname impl(NULL);                                                \
+    impl (VEC(r), VEC(x), y);                                           \
 }
 
-extern "C" float osl_cellnoise_fff (float x, float y)
-{
-    CellNoise cellnoise(NULL);
-    float r;
-    cellnoise (r, x, y);
-    return r;
+
+
+
+
+#define NOISE_IMPL_DERIV(opname,implname)                               \
+extern "C" float osl_ ##opname## _dfdf (void *r, void *x) {             \
+    implname impl(NULL);                                                \
+    impl (DFLOAT(r), DFLOAT(x));                                        \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dfdfdf (void *r, void *x, void *y) {  \
+    implname impl(NULL);                                                \
+    impl (DFLOAT(r), DFLOAT(x), DFLOAT(y));                             \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dfdff (void *r, void *x, float y) {   \
+    implname impl(NULL);                                                \
+    impl (DFLOAT(r), DFLOAT(x), Dual2<float>(y));                       \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dffdf (void *r, float x, void *y) {   \
+    implname impl(NULL);                                                \
+    impl (DFLOAT(r), Dual2<float>(x), DFLOAT(y));                       \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dfdv (void *r, void *x) {             \
+    implname impl(NULL);                                                \
+    impl (DFLOAT(r), DVEC(x));                                          \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dfdvdf (void *r, void *x, void *y) {  \
+    implname impl(NULL);                                                \
+    impl (DFLOAT(r), DVEC(x), DFLOAT(y));                               \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dfdvf (void *r, void *x, float y) {   \
+    implname impl(NULL);                                                \
+    impl (DFLOAT(r), DVEC(x), Dual2<float>(y));                         \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dfvdf (void *r, void *x, void *y) {   \
+    implname impl(NULL);                                                \
+    impl (DFLOAT(r), Dual2<Vec3>(VEC(x)), DFLOAT(y));                   \
+}                                                                       \
+                                                                        \
+                                                                        \
+extern "C" float osl_ ##opname## _dvdf (void *r, void *x) {             \
+    implname impl(NULL);                                                \
+    impl (DVEC(r), DFLOAT(x));                                          \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dvdfdf (void *r, void *x, void *y) {  \
+    implname impl(NULL);                                                \
+    impl (DVEC(r), DFLOAT(x), DFLOAT(y));                               \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dvdff (void *r, void *x, float y) {   \
+    implname impl(NULL);                                                \
+    impl (DVEC(r), DFLOAT(x), Dual2<float>(y));                         \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dvfdf (void *r, float x, void *y) {   \
+    implname impl(NULL);                                                \
+    impl (DVEC(r), Dual2<float>(x), DFLOAT(y));                         \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dvdv (void *r, void *x) {             \
+    implname impl(NULL);                                                \
+    impl (DVEC(r), DVEC(x));                                            \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dvdvdf (void *r, void *x, void *y) {  \
+    implname impl(NULL);                                                \
+    impl (DVEC(r), DVEC(x), DFLOAT(y));                                 \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dvdvf (void *r, void *x, float y) {   \
+    implname impl(NULL);                                                \
+    impl (DVEC(r), DVEC(x), Dual2<float>(y));                           \
+}                                                                       \
+                                                                        \
+extern "C" float osl_ ##opname## _dvvdf (void *r, void *x, void *y) {   \
+    implname impl(NULL);                                                \
+    impl (DVEC(r), Dual2<Vec3>(VEC(x)), DFLOAT(y));                     \
 }
 
-extern "C" float osl_cellnoise_fv (void *x)
-{
-    CellNoise cellnoise(NULL);
-    float r;
-    cellnoise (r, VEC(x));
-    return r;
-}
-
-extern "C" float osl_cellnoise_fvf (void *x, float y)
-{
-    CellNoise cellnoise(NULL);
-    float r;
-    cellnoise (r, VEC(x), y);
-    return r;
-}
 
 
-extern "C" float osl_cellnoise_vf (void *r, float x)
-{
-    CellNoise cellnoise(NULL);
-    cellnoise (VEC(r), x);
-}
 
-extern "C" float osl_cellnoise_vff (void *r, float x, float y)
-{
-    CellNoise cellnoise(NULL);
-    cellnoise (VEC(r), x, y);
-}
+NOISE_IMPL (cellnoise, CellNoise)
 
-extern "C" float osl_cellnoise_vv (void *r, void *x)
-{
-    CellNoise cellnoise(NULL);
-    cellnoise (VEC(r), VEC(x));
-}
-
-extern "C" float osl_cellnoise_vvf (void *r, void *x, float y)
-{
-    CellNoise cellnoise(NULL);
-    cellnoise (VEC(r), VEC(x), y);
-}
-
+NOISE_IMPL (noise, Noise)
+NOISE_IMPL_DERIV (noise, Noise)
+NOISE_IMPL (snoise, SNoise)
+NOISE_IMPL_DERIV (snoise, SNoise)
 
 
 

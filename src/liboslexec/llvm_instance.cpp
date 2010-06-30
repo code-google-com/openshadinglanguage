@@ -2588,7 +2588,7 @@ initialize_llvm_generator_table ()
     INIT (mul);
     INIT (neg);
     INIT2 (neq, llvm_gen_compare_op);
-    // INIT (noise);
+    INIT2 (noise, llvm_gen_generic);
     // INIT (nop);
     INIT2 (normal, llvm_gen_construct_triple);
     INIT2 (normalize, llvm_gen_generic);
@@ -2616,7 +2616,7 @@ initialize_llvm_generator_table ()
     INIT (sincos);
     INIT2 (sinh, llvm_gen_generic);
     INIT2 (smoothstep, llvm_gen_generic);
-    // INIT (snoise);
+    INIT2 (snoise, llvm_gen_generic);
     // INIT (spline);
     INIT2 (sqrt, llvm_gen_generic);
     INIT2 (startswith, llvm_gen_generic);
