@@ -2567,6 +2567,26 @@ LLVMGEN (llvm_gen_gettextureinfo)
     return true;
 }
 
+
+
+LLVMGEN (llvm_gen_get_simple_SG_field)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+
+    DASSERT (op.nargs() == 1);
+
+    Symbol& Result = *rop.opargsym (op, 0);
+
+    std::string name = std::string("osl_") + op.opname().string();
+
+    llvm::Value *r = rop.llvm_call_function (name.c_str(), rop.sg_void_ptr());
+    rop.llvm_store_value (r, Result);
+
+    return true;
+}
+
+
+
 static std::map<ustring,OpLLVMGen> llvm_generator_table;
 
 
@@ -2652,11 +2672,11 @@ initialize_llvm_generator_table ()
     //stdosl.h  INIT (hypot);
     INIT (if);
     INIT2 (inversesqrt, llvm_gen_generic);
-    // INIT (iscameraray);
+    INIT2 (iscameraray, llvm_gen_get_simple_SG_field);
     INIT2 (isfinite, llvm_gen_generic);
     INIT2 (isinf, llvm_gen_generic);
     INIT2 (isnan, llvm_gen_generic);
-    // INIT (isshadowray);
+    INIT2 (isshadowray, llvm_gen_get_simple_SG_field);
     INIT2 (le, llvm_gen_compare_op);
     INIT2 (length, llvm_gen_generic);
     INIT2 (log, llvm_gen_generic);
@@ -2716,7 +2736,7 @@ initialize_llvm_generator_table ()
     INIT (sub);
     INIT2 (substr, llvm_gen_generic);
     // INIT (subsurface);
-    // INIT (surfacearea);
+    INIT2 (surfacearea, llvm_gen_get_simple_SG_field);
     INIT2 (tan, llvm_gen_generic);
     INIT2 (tanh, llvm_gen_generic);
     INIT (texture);

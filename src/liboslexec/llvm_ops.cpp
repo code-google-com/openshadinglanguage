@@ -1682,3 +1682,30 @@ extern "C" int osl_get_attribute_s(void *sg_,
                               array_lookup, index, TypeDesc::TypeString, dest);   
 }
 
+
+
+extern "C" float osl_surfacearea (void *sg_)
+{
+    SingleShaderGlobal *sg = (SingleShaderGlobal *)sg_;
+
+    return sg->surfacearea;
+}
+
+
+
+extern "C" int osl_isshadowray (void *sg_)
+{
+    SingleShaderGlobal *sg = (SingleShaderGlobal *)sg_;
+
+    return sg->isshadowray;
+}
+
+
+
+extern "C" int osl_iscameraray (void *sg_)
+{
+    SingleShaderGlobal *sg = (SingleShaderGlobal *)sg_;
+
+    return sg->iscameraray;
+}
+
