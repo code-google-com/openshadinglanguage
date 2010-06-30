@@ -1547,6 +1547,27 @@ osl_texture_alpha (void *sg_, const char *name, void *opt_, float s, float t,
 
 
 
+extern "C" int osl_get_textureinfo(void *sg_,    void *fin_, 
+                                   void *dnam_,  int type, 
+                                   int arraylen, int aggregate, void *data)
+{
+    // recreate TypeDesc
+    TypeDesc typedesc;
+    typedesc.basetype  = type;
+    typedesc.arraylen  = arraylen;
+    typedesc.aggregate = aggregate;
+ 
+    SingleShaderGlobal *sg   = (SingleShaderGlobal *)sg_;
+    TextureSystem *texsys    = sg->context->shadingsys().texturesys();
+
+    const ustring &filename  = USTR(fin_);
+    const ustring &dataname  = USTR(dnam_);
+
+    return texsys->get_texture_info (filename, dataname, typedesc, data);
+}
+
+
+
 inline int osl_get_attribute(void *sg_,
                              int   dest_derivs,
                              void *obj_name_,

@@ -2534,6 +2534,38 @@ RuntimeOptimizer::llvm_assign_initial_value (const Symbol& sym)
 
 
 
+LLVMGEN (llvm_gen_gettextureinfo)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+
+    DASSERT (op.nargs() == 4);
+
+    Symbol& Result   = *rop.opargsym (op, 0);
+    Symbol& Filename = *rop.opargsym (op, 1);
+    Symbol& Dataname = *rop.opargsym (op, 2);
+    Symbol& Data     = *rop.opargsym (op, 3);
+
+    DASSERT (!Result.typespec().is_closure() && Filename.typespec().is_string() && 
+             Dataname.typespec().is_string() && !Data.typespec().is_closure()   && 
+             Result.typespec().is_int());
+
+    std::vector<llvm::Value *> args;
+
+    args.push_back (rop.sg_void_ptr());
+    args.push_back (rop.llvm_load_value (Filename));
+    args.push_back (rop.llvm_load_value (Dataname));
+    // this is passes a TypeDesc to an LLVM op-code
+    args.push_back (rop.llvm_constant((int) Data.typespec().simpletype().basetype));
+    args.push_back (rop.llvm_constant((int) Data.typespec().simpletype().arraylen));
+    args.push_back (rop.llvm_constant((int) Data.typespec().simpletype().aggregate));
+    // destination
+    args.push_back (rop.llvm_void_ptr (Data));
+
+    llvm::Value *r = rop.llvm_call_function ("osl_get_textureinfo", &args[0], args.size());
+    rop.llvm_store_value (r, Result);
+
+    return true;
+}
 
 static std::map<ustring,OpLLVMGen> llvm_generator_table;
 
@@ -2613,7 +2645,7 @@ initialize_llvm_generator_table ()
     INIT2 (ge, llvm_gen_compare_op);
     INIT (getattribute);
     // INIT (getmessage);
-    // INIT (gettextureinfo);
+    INIT (gettextureinfo);
     INIT2 (gt, llvm_gen_compare_op);
     // INIT (hair_diffuse);
     // INIT (hair_specular);
