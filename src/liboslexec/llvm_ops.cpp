@@ -1756,3 +1756,16 @@ extern "C" float osl_filterwidth_vv(void *out, void *x_)
     VEC(out).z = filter_width (x.dx().z, x.dy().z);   
 }
 
+
+
+extern "C" int osl_and_iii(int a, int b)
+{
+   return a && b;
+}
+
+extern "C" int osl_or_iii(int a, int b)
+{
+   return a || b;
+}
+
+

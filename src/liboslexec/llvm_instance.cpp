@@ -2628,7 +2628,8 @@ initialize_llvm_generator_table ()
     INIT2 (abs, llvm_gen_generic);
     INIT2 (acos, llvm_gen_generic);
     INIT (add);
-    // INIT (and);
+    // OPT: create inlined LLVM for 'and'
+    INIT2 (and, llvm_gen_generic);
     // INIT (ashikhmin_velvet);
     INIT2 (area, llvm_gen_generic);
     INIT (aref);
@@ -2726,7 +2727,8 @@ initialize_llvm_generator_table ()
     // INIT (nop);
     INIT2 (normal, llvm_gen_construct_triple);
     INIT2 (normalize, llvm_gen_generic);
-    // INIT (or);
+    // OPT: create inlined LLVM for 'or'
+    INIT2 (or, llvm_gen_generic);
     // INIT (phong);
     // INIT (phong_ramp);
     INIT2 (pnoise, llvm_gen_pnoise);
