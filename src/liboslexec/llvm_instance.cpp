@@ -892,18 +892,22 @@ LLVMGEN (llvm_gen_printf)
                 return false;
             }
             TypeDesc simpletype (sym.typespec().simpletype());
-            int num_components = simpletype.numelements() * simpletype.aggregate;
+            int num_elements = simpletype.numelements();
+            int num_components = simpletype.aggregate;
             // NOTE(boulos): Only for debug mode do the derivatives get printed...
-            for (int i = 0; i < num_components; i++) {
-                if (i != 0) s += " ";
-                s += ourformat;
+            for (int a = 0;  a < num_elements;  ++a) {
+                llvm::Value *arrind = simpletype.arraylen ? rop.llvm_constant(a) : NULL;
+                for (int c = 0; c < num_components; c++) {
+                    if (c != 0 || a != 0)
+                        s += " ";
+                    s += ourformat;
 
-                llvm::Value* loaded = rop.loadLLVMValue (sym, i, 0);
-                // NOTE(boulos): Annoyingly varargs makes it so that things need
-                // to be upconverted from float to double (who knew?)
-                if (sym.typespec().is_floatbased()) {
-                    call_args.push_back (rop.builder().CreateFPExt(loaded, llvm::Type::getDoubleTy(rop.llvm_context())));
-                } else {
+                    llvm::Value* loaded = rop.llvm_load_value (sym, 0, arrind, c);
+                        
+                    // C varargs convention upconverts float->double.
+                    if (sym.typespec().is_floatbased())
+                        loaded = rop.builder().CreateFPExt(loaded, llvm::Type::getDoubleTy(rop.llvm_context()));
+
                     call_args.push_back (loaded);
                 }
             }
