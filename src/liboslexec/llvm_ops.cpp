@@ -591,6 +591,7 @@ inline Dual2<float> fabsf (const Dual2<float> &x) {
 }
 
 MAKE_UNARY_PERCOMPONENT_OP (abs, fabsf, fabsf);
+MAKE_UNARY_PERCOMPONENT_OP (fabs, fabsf, fabsf);
 
 
 extern "C" float osl_smoothstep_ffff(float e0, float e1, float x) { return smoothstep(e0, e1, x); }

@@ -113,6 +113,7 @@ float hypot (float a, float b, float c) { return sqrt (a*a + b*b + c*c); }
 PERCOMP1 (abs)
 int abs (int x) BUILTIN;
 PERCOMP1 (fabs)
+int fabs (int x) BUILTIN;
 PERCOMP1 (sign)
 PERCOMP1 (floor)
 PERCOMP1 (ceil)
