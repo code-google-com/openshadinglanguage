@@ -2596,7 +2596,7 @@ LLVMGEN (llvm_gen_calculatenormal)
     Symbol& Result = *rop.opargsym (op, 0);
     Symbol& P      = *rop.opargsym (op, 1);
 
-    DASSERT (Result.typespec().is_triple() && P.typespec().is_triple &&
+    DASSERT (Result.typespec().is_triple() && P.typespec().is_triple() &&
              P.has_derivs());
     
     std::vector<llvm::Value *> args;
