@@ -125,11 +125,11 @@ PERCOMP2F (mod)
 int    mod (int x, int y) BUILTIN;
 PERCOMP2 (min)
 PERCOMP2 (max)
-normal clamp (normal x, normal a, normal b) { return min(max(x,a),b); }
-vector clamp (vector x, vector a, vector b) { return min(max(x,a),b); }
-point  clamp (point x, point a, point b) { return min(max(x,a),b); }
-color  clamp (color x, color a, color b) { return min(max(x,a),b); }
-float  clamp (float x, float a, float b) { return min(max(x,a),b); }
+normal clamp (normal x, normal minval, normal maxval) { return max(min(x,maxval),minval); }
+vector clamp (vector x, vector minval, vector maxval) { return max(min(x,maxval),minval); }
+point  clamp (point x, point minval, point maxval) { return max(min(x,maxval),minval); }
+color  clamp (color x, color minval, color maxval) { return max(min(x,maxval),minval); }
+float  clamp (float x, float minval, float maxval) { return max(min(x,maxval),minval); }
 //normal clamp (normal x, normal minval, normal maxval) BUILTIN;
 //vector clamp (vector x, vector minval, vector maxval) BUILTIN;
 //point  clamp (point x, point minval, point maxval) BUILTIN;
