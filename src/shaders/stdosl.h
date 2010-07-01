@@ -161,8 +161,12 @@ normal normalize (normal v) BUILTIN;
 vector normalize (vector v) BUILTIN;
 vector faceforward (vector N, vector I, vector Nref) BUILTIN;
 vector faceforward (vector N, vector I) BUILTIN;
-vector reflect (vector I, vector N) BUILTIN;
-vector refract (vector I, vector N, float eta) BUILTIN;
+vector reflect (vector I, vector N) { return I - 2*dot(N,I)*N; }
+vector refract (vector I, vector N, float eta) {
+    float IdotN = dot (I, N);
+    float k = 1 - eta*eta * (1 - IdotN*IdotN);
+    return (k < 0) ? vector(0,0,0) : (eta*I - N * (eta*IdotN + sqrt(k)));
+}
 point rotate (point q, float angle, point a, point b) BUILTIN;
 
 normal transform (matrix Mto, normal p) BUILTIN;

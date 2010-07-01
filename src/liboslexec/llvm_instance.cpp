@@ -2737,9 +2737,9 @@ initialize_llvm_generator_table ()
     INIT (printf);
     INIT2 (psnoise, llvm_gen_pnoise);
     INIT2 (radians, llvm_gen_generic);
-    // INIT (reflect);
+    //stdosl.h INIT (reflect);
     // INIT (reflection);
-    // INIT (refract);
+    //stdosl.h INIT (refract);
     // INIT (refraction);
     INIT2 (regex_match, llvm_gen_regex);
     INIT2 (regex_search, llvm_gen_regex);
