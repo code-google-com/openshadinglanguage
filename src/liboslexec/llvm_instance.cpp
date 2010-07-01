@@ -248,6 +248,8 @@ RuntimeOptimizer::llvm_type_groupdata ()
             if (sym.symtype() == SymTypeParam ||
                   sym.symtype() == SymTypeOutputParam) {
                 TypeSpec ts = sym.typespec();
+                if (ts.is_structure())  // skip the struct symbol itself
+                    continue;
                 int arraylen = std::max (1, sym.typespec().arraylength());
                 int n = arraylen * (sym.has_derivs() ? 3 : 1);
                 ts.make_array (n);
@@ -2863,6 +2865,9 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
         // Skip scalar int or float constants -- we always inline them
         if (s.is_constant() && !s.typespec().is_closure() &&
             (s.typespec().is_float() || s.typespec().is_int()))
+            continue;
+        // Skip structure placeholders
+        if (s.typespec().is_structure())
             continue;
         // Allocate space for locals, temps, aggregate constants
         if (s.symtype() == SymTypeLocal || s.symtype() == SymTypeTemp ||
