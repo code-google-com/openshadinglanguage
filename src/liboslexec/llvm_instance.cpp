@@ -612,8 +612,10 @@ RuntimeOptimizer::llvm_load_component_value (const Symbol& sym, int deriv,
         result = builder().CreateConstGEP2_32 (result, 0, 0);
 
     ASSERT (t.aggregate != TypeDesc::SCALAR);
-    result = builder().CreateConstGEP1_32 (result, 0);  // Find the memory
-    result = builder().CreateGEP (result, component);   // Find the component
+    std::vector<llvm::Value *> indexes;
+    indexes.push_back(llvm_constant(0));
+    indexes.push_back(component);
+    result = builder().CreateGEP (result, indexes.begin(), indexes.end(), "compaccess");  // Find the component
 
     // Now grab the value
     return builder().CreateLoad (result);
@@ -679,8 +681,10 @@ RuntimeOptimizer::llvm_store_component_value (llvm::Value* new_val,
         result = builder().CreateConstGEP2_32 (result, 0, 0);
 
     ASSERT (t.aggregate != TypeDesc::SCALAR);
-    result = builder().CreateConstGEP1_32 (result, 0);  // Find the memory
-    result = builder().CreateGEP (result, component);   // Find the component
+    std::vector<llvm::Value *> indexes;
+    indexes.push_back(llvm_constant(0));
+    indexes.push_back(component);
+    result = builder().CreateGEP (result, indexes.begin(), indexes.end(), "compaccess");  // Find the component
 
     // Finally, store the value.
     builder().CreateStore (new_val, result);
