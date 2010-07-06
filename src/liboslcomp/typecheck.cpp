@@ -1041,7 +1041,6 @@ static const char * builtin_func_args [] = {
     "filterwidth", "ff", "vp", "vv", NULL,
     "format", "ss*", "!printf", NULL,
     "fprintf", "xs*", "!printf", NULL,
-    "fresnel", "xvvff", "xvvfffvv", "!rw", NULL,
     "getattribute", "is?", "iss?", "isi?", "issi?", "!rw", NULL,  // FIXME -- further checking?
     "getmessage", "is?", "is?[]", /*"iss?",*/ "!rw", NULL,  // FIXME -- further checking?
     "gettextureinfo", "iss?", "iss?[]", "!rw", NULL,  // FIXME -- further checking?

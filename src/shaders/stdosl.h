@@ -168,6 +168,43 @@ vector refract (vector I, vector N, float eta) {
     float k = 1 - eta*eta * (1 - IdotN*IdotN);
     return (k < 0) ? vector(0,0,0) : (eta*I - N * (eta*IdotN + sqrt(k)));
 }
+void fresnel (vector I, normal N, float eta,
+              output float Kr, output float Kt,
+              output vector R, output vector T)
+{
+    float sqr(float x) { return x*x; }
+    float c = dot(I, N);
+    if (c < 0)
+        c = -c;
+    R = reflect(I, N);
+    float g = 1.0 / sqr(eta) - 1.0 + c * c;
+    if (g >= 0.0) {
+        g = sqrt (g);
+        float beta = g - c;
+        float F = (c * (g+c) - 1.0) / (c * beta + 1.0);
+        F = 0.5 * (1.0 + sqr(F));
+        F *= sqr (beta / (g+c));
+        Kr = F;
+        Kt = (1.0 - Kr) * eta*eta;
+        // OPT: the following recomputes some of the above values, but it 
+        // gives us the same result as if the shader-writer called refract()
+        T = refract(I, N, eta);
+    } else {
+        // total internal reflection
+        Kr = 1.0;
+        Kt = 0.0;
+        T = vector (0,0,0);
+    }
+#undef sqr
+}
+
+void fresnel (vector I, normal N, float eta,
+              output float Kr, output float Kt)
+{
+    vector R, T;
+    fresnel(I, N, eta, Kr, Kt, R, T);
+}
+
 point rotate (point q, float angle, point a, point b) BUILTIN;
 
 normal transform (matrix Mto, normal p) BUILTIN;
