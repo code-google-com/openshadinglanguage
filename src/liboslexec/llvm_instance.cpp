@@ -2760,7 +2760,6 @@ initialize_llvm_generator_table ()
     INIT (add);
     // OPT: create inlined LLVM for 'and'
     INIT2 (and, llvm_gen_generic);
-    // INIT (ashikhmin_velvet);
     INIT2 (area, llvm_gen_generic);
     INIT (aref);
     INIT (arraylength);
@@ -2768,16 +2767,12 @@ initialize_llvm_generator_table ()
     INIT (assign);
     INIT2 (atan, llvm_gen_generic);
     INIT2 (atan2, llvm_gen_generic);
-    // INIT (background);
     INIT2 (bitand, llvm_gen_bitwise_binary_op);
     INIT2 (bitor, llvm_gen_bitwise_binary_op);
-    // INIT (bssrdf_cubic);
     INIT (calculatenormal);
     INIT2 (ceil, llvm_gen_generic);
     INIT2 (cellnoise, llvm_gen_generic);
     INIT (clamp);
-    // INIT (cloth);
-    // INIT (cloth_specular);
     INIT2 (color, llvm_gen_construct_triple);
     INIT (compassign);
     INIT2 (compl, llvm_gen_unary_op);
@@ -2788,15 +2783,12 @@ initialize_llvm_generator_table ()
     INIT2 (cross, llvm_gen_generic);
     INIT2 (degrees, llvm_gen_generic);
     INIT2 (determinant, llvm_gen_generic);
-    // INIT (dielectric);
-    // INIT (diffuse);
     INIT2 (distance, llvm_gen_generic);
     INIT (div);
     INIT2 (dot, llvm_gen_generic);
     INIT (Dx);
     INIT (Dy);
     INIT2 (dowhile, llvm_gen_loop_op);
-    // INIT (emission);
     // INIT (end);
     INIT2 (endswith, llvm_gen_generic);
     INIT2 (eq, llvm_gen_compare_op);
@@ -2807,22 +2799,17 @@ initialize_llvm_generator_table ()
     INIT2 (exp2, llvm_gen_generic);
     INIT2 (expm1, llvm_gen_generic);
     INIT2 (fabs, llvm_gen_generic);
-    // INIT (fakefur_diffuse);
-    // INIT (fakefur_specular);
-    // INIT (fakefur_skin);
     INIT2 (filterwidth, llvm_gen_generic);
     INIT2 (floor, llvm_gen_generic);
     INIT2 (fmod, llvm_gen_mod);
     INIT2 (for, llvm_gen_loop_op);
     INIT2 (format, llvm_gen_printf);
-    // INIT (fresnel);
+    //stdosl.h INIT (fresnel);
     INIT2 (ge, llvm_gen_compare_op);
     INIT (getattribute);
     INIT (getmessage);
     INIT (gettextureinfo);
     INIT2 (gt, llvm_gen_compare_op);
-    // INIT (hair_diffuse);
-    // INIT (hair_specular);
     //stdosl.h  INIT (hypot);
     INIT (if);
     INIT2 (inversesqrt, llvm_gen_generic);
@@ -2843,10 +2830,6 @@ initialize_llvm_generator_table ()
     INIT (mxcompassign);
     INIT (mxcompref);
     INIT2 (max, llvm_gen_minmax);
-    // INIT (microfacet_beckmann);
-    // INIT (microfacet_beckmann_refraction);
-    // INIT (microfacet_ggx);
-    // INIT (microfacet_ggx_refraction);
     INIT2 (min, llvm_gen_minmax);
     //stdosl.h   INIT (mix);
     INIT (mod);
@@ -2859,8 +2842,6 @@ initialize_llvm_generator_table ()
     INIT2 (normalize, llvm_gen_generic);
     // OPT: create inlined LLVM for 'or'
     INIT2 (or, llvm_gen_generic);
-    // INIT (phong);
-    // INIT (phong_ramp);
     INIT2 (pnoise, llvm_gen_pnoise);
     INIT2 (point, llvm_gen_construct_triple);
     INIT2 (pow, llvm_gen_generic);
@@ -2868,9 +2849,7 @@ initialize_llvm_generator_table ()
     INIT2 (psnoise, llvm_gen_pnoise);
     INIT2 (radians, llvm_gen_generic);
     //stdosl.h INIT (reflect);
-    // INIT (reflection);
     //stdosl.h INIT (refract);
-    // INIT (refraction);
     INIT2 (regex_match, llvm_gen_regex);
     INIT2 (regex_search, llvm_gen_regex);
     INIT2 (round, llvm_gen_generic);
@@ -2890,7 +2869,6 @@ initialize_llvm_generator_table ()
     INIT2 (strlen, llvm_gen_generic);
     INIT (sub);
     INIT2 (substr, llvm_gen_generic);
-    // INIT (subsurface);
     INIT2 (surfacearea, llvm_gen_get_simple_SG_field);
     INIT2 (tan, llvm_gen_generic);
     INIT2 (tanh, llvm_gen_generic);
@@ -2898,16 +2876,11 @@ initialize_llvm_generator_table ()
     INIT2 (transform,  llvm_gen_generic);
     INIT2 (transformn, llvm_gen_generic);
     INIT2 (transformv, llvm_gen_generic);
-    // INIT (translucent);
-    // INIT (transparent);
     INIT2 (transpose, llvm_gen_generic);
     INIT2 (trunc, llvm_gen_generic);
     INIT (useparam);
     INIT2 (vector, llvm_gen_construct_triple);
-    // INIT (ward);
     INIT2 (warning, llvm_gen_printf);
-    // INIT (westin_backscatter);
-    // INIT (westin_sheen);
     INIT2 (while, llvm_gen_loop_op);
     INIT2 (xor, llvm_gen_bitwise_binary_op);
 
