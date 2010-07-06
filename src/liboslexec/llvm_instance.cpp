@@ -348,6 +348,15 @@ RuntimeOptimizer::llvm_constant (ustring s)
 
 
 
+llvm::Value *
+RuntimeOptimizer::llvm_constant (const TypeDesc &type)
+{
+    long long *i = (long long *)&type;
+    return llvm::ConstantInt::get (llvm_context(), llvm::APInt(64,*i));
+}
+
+
+
 const llvm::Type *
 RuntimeOptimizer::llvm_type (const TypeSpec &typespec)
 {
@@ -574,6 +583,9 @@ RuntimeOptimizer::llvm_load_value (const Symbol& sym, int deriv,
 
     // Now grab the value
     result = builder().CreateLoad (result);
+
+    if (sym.typespec().is_closure())
+        return result;
 
     // Handle int<->float type casting
     if (sym.typespec().is_floatbased() && cast == TypeDesc::TypeInt)
@@ -891,10 +903,6 @@ LLVMGEN (llvm_gen_printf)
             std::string ourformat (oldfmt, format);  // straddle the format
             // Doctor it to fix mismatches between format and data
             Symbol& sym (*rop.opargsym (op, arg));
-            if (sym.typespec().is_closure ()) {
-                rop.shadingsys().warning ("symbol type for '%s' unsupported for %s\n", sym.mangled().c_str(), op.opname().c_str());
-                return false;
-            }
             TypeDesc simpletype (sym.typespec().simpletype());
             int num_elements = simpletype.numelements();
             int num_components = simpletype.aggregate;
@@ -907,10 +915,13 @@ LLVMGEN (llvm_gen_printf)
                     s += ourformat;
 
                     llvm::Value* loaded = rop.llvm_load_value (sym, 0, arrind, c);
-                        
-                    // C varargs convention upconverts float->double.
-                    if (sym.typespec().is_floatbased())
+                    if (sym.typespec().is_closure()) {
+                        loaded = rop.llvm_call_function ("osl_closure_to_string", loaded);
+                    }
+                    else if (sym.typespec().is_floatbased()) {
+                        // C varargs convention upconverts float->double.
                         loaded = rop.builder().CreateFPExt(loaded, llvm::Type::getDoubleTy(rop.llvm_context()));
+                    }
 
                     call_args.push_back (loaded);
                 }
@@ -2579,6 +2590,50 @@ LLVMGEN (llvm_gen_gettextureinfo)
 
 
 
+LLVMGEN (llvm_gen_getmessage)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+
+    DASSERT (op.nargs() == 3);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& Name   = *rop.opargsym (op, 1);
+    Symbol& Data   = *rop.opargsym (op, 2);
+    DASSERT (Result.typespec().is_int() && Name.typespec().is_string());
+
+    llvm::Value *args[4];
+    args[0] = rop.sg_void_ptr();
+    args[1] = rop.llvm_load_value (Name);
+    args[2] = rop.llvm_constant (Data.typespec().simpletype());
+    args[3] = rop.llvm_void_ptr (Data);
+
+    llvm::Value *r = rop.llvm_call_function ("osl_getmessage", args, 4);
+    rop.llvm_store_value (r, Result);
+    return true;
+}
+
+
+
+LLVMGEN (llvm_gen_setmessage)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+
+    DASSERT (op.nargs() == 2);
+    Symbol& Name   = *rop.opargsym (op, 0);
+    Symbol& Data   = *rop.opargsym (op, 1);
+    DASSERT (Name.typespec().is_string());
+
+    llvm::Value *args[4];
+    args[0] = rop.sg_void_ptr();
+    args[1] = rop.llvm_load_value (Name);
+    args[2] = rop.llvm_constant (Data.typespec().simpletype());
+    args[3] = rop.llvm_void_ptr (Data);
+
+    rop.llvm_call_function ("osl_setmessage", args, 4);
+    return true;
+}
+
+
+
 LLVMGEN (llvm_gen_get_simple_SG_field)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
@@ -2763,7 +2818,7 @@ initialize_llvm_generator_table ()
     // INIT (fresnel);
     INIT2 (ge, llvm_gen_compare_op);
     INIT (getattribute);
-    // INIT (getmessage);
+    INIT (getmessage);
     INIT (gettextureinfo);
     INIT2 (gt, llvm_gen_compare_op);
     // INIT (hair_diffuse);
@@ -2819,7 +2874,7 @@ initialize_llvm_generator_table ()
     INIT2 (regex_match, llvm_gen_regex);
     INIT2 (regex_search, llvm_gen_regex);
     INIT2 (round, llvm_gen_generic);
-    // INIT (setmessage);
+    INIT (setmessage);
     INIT2 (shl, llvm_gen_bitwise_binary_op);
     INIT2 (shr, llvm_gen_bitwise_binary_op);
     INIT2 (sign, llvm_gen_generic);

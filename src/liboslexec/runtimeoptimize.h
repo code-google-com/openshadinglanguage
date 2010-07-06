@@ -409,6 +409,10 @@ public:
         return llvm_constant(ustring(s));
     }
 
+    /// Return an llvm::Value for a long long that is a packed
+    /// representation of a TypeDesc.
+    llvm::Value *llvm_constant (const TypeDesc &type);
+
     /// Generate LLVM code to zero out the derivatives of sym.
     ///
     void llvm_zero_derivs (const Symbol &sym);
