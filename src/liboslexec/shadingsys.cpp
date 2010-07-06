@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "OpenImageIO/filesystem.h"
 
 #include "oslexec_pvt.h"
+#include "genclosure.h"
 #include "llvm_headers.h"
 
 using namespace OSL;
@@ -184,8 +185,18 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
     const char *llvm_env = getenv ("OSL_USE_LLVM");
     if (llvm_env && *llvm_env)
         m_use_llvm = atoi (llvm_env);
+
+    register_builtin_closures(this);
 }
 
+void
+ShadingSystemImpl::register_closure(const char *name, int id, const ClosureParam *params,
+                                    int size, PrepareClosureFunc prepare, SetupClosureFunc setup,
+                                    int sidedness_offset, int labels_offset, int max_labels)
+{
+    m_closure_registry.register_closure(name, id, params, size, prepare, setup,
+                                        sidedness_offset, labels_offset, max_labels);
+}
 
 
 ShadingSystemImpl::~ShadingSystemImpl ()
@@ -914,6 +925,42 @@ ShadingSystemImpl::global_heap_offset (ustring name)
     std::map<ustring,int>::const_iterator f = m_global_heap_offsets.find (name);
     return f != m_global_heap_offsets.end() ? f->second : -1;
 }
+
+
+
+void ClosureRegistry::register_closure(const char *name, int id, const ClosureParam *params,
+                                      int size, PrepareClosureFunc prepare, SetupClosureFunc setup,
+                                      int sidedness_offset, int labels_offset, int max_labels)
+{
+    if (m_closure_table.size() <= (size_t)id)
+        m_closure_table.resize(id + 1);
+    ClosureEntry &entry = m_closure_table[id];
+    entry.id = id;
+    for (int i = 0; params[i].type != TypeDesc(); ++i)
+        entry.params.push_back(params[i]);
+    entry.struct_size = size;
+    entry.prepare = prepare;
+    entry.setup = setup;
+    entry.labels_offset = labels_offset;
+    entry.sidedness_offset = sidedness_offset;
+    entry.max_labels = max_labels;
+    m_closure_name_to_id[ustring(name)] = id;
+}
+
+
+
+const ClosureRegistry::ClosureEntry *ClosureRegistry::get_entry(ustring name)const
+{
+    std::map<ustring, int>::const_iterator i = m_closure_name_to_id.find(name);
+    if (i != m_closure_name_to_id.end())
+    {
+        ASSERT((size_t)i->second < m_closure_table.size());
+        return &m_closure_table[i->second];
+    }
+    else
+        return NULL;
+}
+
 
 
 }; // namespace pvt

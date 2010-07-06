@@ -36,6 +36,7 @@ namespace OSL_NAMESPACE {
 
 namespace OSL {
 
+struct ClosureParam;
 
 class OSLCompiler {
 public:
@@ -52,6 +53,8 @@ public:
     /// Return the name of our compiled output (must be called after
     /// compile()).
     virtual std::string output_filename () const = 0;
+
+    virtual void register_closure(const char *name, const ClosureParam *params, bool takes_keywords) = 0;
 };
 
 
