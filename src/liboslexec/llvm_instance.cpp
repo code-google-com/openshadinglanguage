@@ -2620,6 +2620,71 @@ LLVMGEN (llvm_gen_calculatenormal)
 }
 
 
+
+LLVMGEN (llvm_gen_spline)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+
+    DASSERT (op.nargs() >= 4 && op.nargs() <= 5);
+
+    bool has_knot_count = (op.nargs() == 5);
+    Symbol& Result   = *rop.opargsym (op, 0);
+    Symbol& Spline   = *rop.opargsym (op, 1);
+    Symbol& Value    = *rop.opargsym (op, 2);
+    Symbol& Knot_count = *rop.opargsym (op, 3); // might alias Knots
+    Symbol& Knots    = has_knot_count ? *rop.opargsym (op, 4) :
+                                        *rop.opargsym (op, 3);
+
+    DASSERT (!Result.typespec().is_closure() && Spline.typespec().is_string()  && 
+             Value.typespec().is_float()     && !Knots.typespec().is_closure() &&
+             Knots.typespec().is_array()     &&  
+             (!has_knot_count || (has_knot_count && Knot_count.typespec().is_int())));
+
+    std::string name = "osl_spline_";
+    std::vector<llvm::Value *> args;
+    // only use derivatives for result if:
+    //   result has derivs and (value || knots) have derivs
+    bool result_derivs = Result.has_derivs() && (Value.has_derivs() || Knots.has_derivs());
+
+    if (result_derivs)
+        name += "d";
+    if (Result.typespec().is_float())
+        name += "f";
+    else if (Result.typespec().is_triple())
+        name += "v";
+
+    if (result_derivs && Value.has_derivs())
+        name += "d";
+    if (Value.typespec().is_float())
+        name += "f";
+    else if (Value.typespec().is_triple())
+        name += "v";
+
+    if (result_derivs && Knots.has_derivs())
+        name += "d";
+    if (Knots.typespec().simpletype().elementtype() == TypeDesc::FLOAT)
+        name += "f";
+    else if (Knots.typespec().simpletype().elementtype().aggregate == TypeDesc::VEC3)
+        name += "v";
+
+    args.push_back (rop.llvm_void_ptr (Result));
+    args.push_back (rop.llvm_load_value (Spline));
+    args.push_back (rop.llvm_void_ptr (Value)); // make things easy
+    args.push_back (rop.llvm_void_ptr (Knots));
+    if (has_knot_count)
+        args.push_back (rop.llvm_load_value (Knot_count));
+    else
+        args.push_back (rop.llvm_constant ((int)Knots.typespec().arraylength()));
+    rop.llvm_call_function (name.c_str(), &args[0], args.size());
+
+    if (Result.has_derivs() && !result_derivs)
+        rop.llvm_zero_derivs (Result);
+
+    return true;
+}
+
+
+
 static std::map<ustring,OpLLVMGen> llvm_generator_table;
 
 
@@ -2763,7 +2828,7 @@ initialize_llvm_generator_table ()
     INIT2 (sinh, llvm_gen_generic);
     INIT2 (smoothstep, llvm_gen_generic);
     INIT2 (snoise, llvm_gen_generic);
-    // INIT (spline);
+    INIT (spline);
     INIT2 (sqrt, llvm_gen_generic);
     INIT2 (startswith, llvm_gen_generic);
     INIT2 (step, llvm_gen_generic);

@@ -97,6 +97,7 @@ examples), as you are just coding in C++, but there are some rules:
 #include "oslclosure.h"
 #include "oslexec_pvt.h"
 #include "noiseimpl.h"
+#include "splineimpl.h"
 using namespace OSL;
 using namespace OSL::pvt;
 
@@ -1767,6 +1768,81 @@ extern "C" int osl_and_iii(int a, int b)
 extern "C" int osl_or_iii(int a, int b)
 {
    return a || b;
+}
+
+
+
+
+extern "C" void  osl_spline_fff(void *out, void *spline_, void *x, 
+                                void *knots_, int knot_count)
+{
+   float *knots = (float *)knots_;
+   const Spline::SplineBasis *spline = Spline::getSplineBasis(USTR(spline_));
+   Spline::spline_evaluate<float, float, float, float, false>
+      (spline, *(float *)out, *(float *)x, knots, knot_count);
+}
+
+extern "C" void  osl_spline_dfdfdf(void *out, void *spline_, void *x, 
+                                   void *knots_, int knot_count)
+{
+   float *knots = (float *)knots_; 
+   const Spline::SplineBasis *spline = Spline::getSplineBasis(USTR(spline_));
+   Spline::spline_evaluate<Dual2<float>, Dual2<float>, Dual2<float>, float, true>
+      (spline, DFLOAT(out), DFLOAT(x), knots, knot_count);
+}
+
+extern "C" void  osl_spline_dffdf(void *out, void *spline_, void *x, 
+                                   void *knots_, int knot_count)
+{
+   float *knots = (float *)knots_; 
+   const Spline::SplineBasis *spline = Spline::getSplineBasis(USTR(spline_));
+   Spline::spline_evaluate<Dual2<float>, float, Dual2<float>, float, true>
+      (spline, DFLOAT(out), *(float *)x, knots, knot_count);
+}
+
+extern "C" void  osl_spline_dfdff(void *out, void *spline_, void *x, 
+                                   void *knots_, int knot_count)
+{
+   float *knots = (float *)knots_; 
+   const Spline::SplineBasis *spline = Spline::getSplineBasis(USTR(spline_));
+   Spline::spline_evaluate<Dual2<float>, Dual2<float>, float, float, false>
+      (spline, DFLOAT(out), DFLOAT(x), knots, knot_count);
+}
+
+extern "C" void  osl_spline_vfv(void *out, void *spline_, void *x, 
+                                void *knots_, int knot_count)
+{
+   Vec3 *knots = (Vec3 *)knots_;
+   const Spline::SplineBasis *spline = Spline::getSplineBasis(USTR(spline_));
+   Spline::spline_evaluate<Vec3, float, Vec3, Vec3, false>
+      (spline, *(Vec3 *)out, *(float *)x, knots, knot_count);
+}
+
+extern "C" void  osl_spline_dvdfv(void *out, void *spline_, void *x, 
+                                  void *knots_, int knot_count)
+{
+   Vec3 *knots = (Vec3 *)knots_;
+   const Spline::SplineBasis *spline = Spline::getSplineBasis(USTR(spline_));
+   Spline::spline_evaluate<Vec3, float, Vec3, Vec3, false>
+      (spline, *(Vec3 *)out, *(float *)x, knots, knot_count);
+}
+
+extern "C" void  osl_spline_dvfdv(void *out, void *spline_, void *x, 
+                                   void *knots_, int knot_count)
+{
+   Vec3 *knots = (Vec3 *)knots_; 
+   const Spline::SplineBasis *spline = Spline::getSplineBasis(USTR(spline_));
+   Spline::spline_evaluate<Dual2<Vec3>, float, Dual2<Vec3>, Vec3, true>
+      (spline, DVEC(out), *(float *)x, knots, knot_count);
+}
+
+extern "C" void  osl_spline_dvdfdv(void *out, void *spline_, void *x, 
+                                   void *knots_, int knot_count)
+{
+   Vec3 *knots = (Vec3 *)knots_; 
+   const Spline::SplineBasis *spline = Spline::getSplineBasis(USTR(spline_));
+   Spline::spline_evaluate<Dual2<Vec3>, Dual2<float>, Dual2<Vec3>, Vec3, true>
+      (spline, DVEC(out), DFLOAT(x), knots, knot_count);
 }
 
 
