@@ -1121,7 +1121,7 @@ osl_endswith_iss (const char *s, const char *substr)
     if (len > USTR(s).length())
         return 0;
     else
-        return strncmp (s+USTR(s).length()-len, substr, len);
+        return strncmp (s+USTR(s).length()-len, substr, len) == 0;
 }
 
 extern "C" const char *
@@ -1139,29 +1139,14 @@ extern "C" int
 osl_regex_impl (void *sg_, const char *subject_, void *results, int nresults,
                 const char *pattern, int fullmatch)
 {
+    extern int osl_regex_impl2 (OSL::pvt::ShadingContext *ctx, ustring subject,
+                               int *results, int nresults, ustring pattern,
+                               int fullmatch);
+
     SingleShaderGlobal *sg = (SingleShaderGlobal *)sg_;
-    const std::string &subject (USTR(subject_).string());
-    boost::match_results<std::string::const_iterator> mresults;
-    const boost::regex &regex (sg->context->find_regex (USTR(pattern)));
-    if (nresults > 0) {
-        std::string::const_iterator start = subject.begin();
-        int r = fullmatch ? boost::regex_match (subject, mresults, regex)
-                          : boost::regex_search (subject, mresults, regex);
-        int *m = (int *)results;
-        for (int r = 0;  r < nresults;  ++r) {
-            if (r/2 < (int)mresults.size()) {
-                if ((r & 1) == 0)
-                    m[r] = mresults[r/2].first - start;
-                else
-                    m[r] = mresults[r/2].second - start;
-            } else {
-                m[r] = USTR(pattern).length();
-            }
-        }
-    } else {
-        return fullmatch ? boost::regex_match (subject, regex)
-                         : boost::regex_search (subject, regex);
-    }
+    return osl_regex_impl2 (sg->context, USTR(subject_),
+                            (int *)results, nresults,
+                            USTR(pattern), fullmatch);
 }
 
 

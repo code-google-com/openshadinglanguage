@@ -42,31 +42,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Heavy lifting of OSL regex operations.
 extern "C" int
-osl_regex_impl (OSL::pvt::ShadingContext *ctx, ustring subject,
-                int *match, int matchlen, ustring pattern,
-                int fullmatch, int do_match_results)
+osl_regex_impl2 (OSL::pvt::ShadingContext *ctx, ustring subject_,
+                 int *results, int nresults, ustring pattern,
+                 int fullmatch)
 {
+    const std::string &subject (subject_.string());
+    boost::match_results<std::string::const_iterator> mresults;
     const boost::regex &regex (ctx->find_regex (pattern));
-    if (do_match_results && matchlen) {
-        boost::match_results<std::string::const_iterator> mresults;
-        std::string::const_iterator start = subject.string().begin();
-        int result = fullmatch ? 
-            boost::regex_match (subject.string(), mresults, regex) :
-            boost::regex_search (subject.string(), mresults, regex);
-        for (int r = 0;  r < matchlen;  ++r) {
+    if (nresults > 0) {
+        std::string::const_iterator start = subject.begin();
+        int res = fullmatch ? boost::regex_match (subject, mresults, regex)
+                            : boost::regex_search (subject, mresults, regex);
+        int *m = (int *)results;
+        for (int r = 0;  r < nresults;  ++r) {
             if (r/2 < (int)mresults.size()) {
                 if ((r & 1) == 0)
-                    match[r] = mresults[r/2].first - start;
+                    m[r] = mresults[r/2].first - start;
                 else
-                    match[r] = mresults[r/2].second - start;
+                    m[r] = mresults[r/2].second - start;
             } else {
-                match[r] = pattern.length();
+                m[r] = pattern.length();
             }
         }
-        return result;
+        return res;
     } else {
-        return fullmatch ? boost::regex_match (subject.string(), regex)
-                         : boost::regex_search (subject.string(), regex);
+        return fullmatch ? boost::regex_match (subject, regex)
+                         : boost::regex_search (subject, regex);
     }
 }
 
