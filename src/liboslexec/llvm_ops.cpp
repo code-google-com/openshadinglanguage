@@ -106,13 +106,13 @@ using namespace OSL::pvt;
 #include <OpenEXR/ImathFun.h>
 #include <OpenImageIO/fmath.h>
 
-// Handy re-casting macros// is).
+// Handy re-casting macros
 #define USTR(cstr) (*((ustring *)&cstr))
 #define MAT(m) (*(Matrix44 *)m)
 #define VEC(v) (*(Vec3 *)v)
 #define DFLOAT(x) (*(Dual2<Float> *)x)
 #define DVEC(x) (*(Dual2<Vec3> *)x)
-
+#define CLOSURE(x) ((ClosureColor *)x)
 
 
 extern "C" const char *
@@ -721,48 +721,76 @@ extern "C" float osl_transformn_dvmdv(void *result, void* M_, void* v_)
 
 // Closure functions
 
-extern "C" void
-osl_closure_clear (ClosureColor *r)
+extern "C" void *
+osl_closure_allot (void *sg_)
 {
+    SingleShaderGlobal *sg = (SingleShaderGlobal *)sg_;
+    ShadingContext *ctx = (ShadingContext *)sg->context;
+    return ctx->closure_ptr_allot ();
+}
+
+extern "C" void
+osl_closure_clear (void *_r)
+{
+    ClosureColor *r = (ClosureColor *)_r;
     r->clear ();
 }
 
 extern "C" void
-osl_closure_clear_indexed (ClosureColor **r, int i)
+osl_closure_clear_indexed (void **_r, int i)
 {
+    ClosureColor **r = (ClosureColor **)_r;
     r[i]->clear ();
 }
 
 extern "C" void
-osl_closure_assign (ClosureColor *r, ClosureColor *x)
+osl_closure_assign (void *_r, void *_x)
 {
+    ClosureColor *r = (ClosureColor *)_r;
+    ClosureColor *x = (ClosureColor *)_x;
     *r = *x;
 }
 
 extern "C" void
-osl_closure_assign_indexed (ClosureColor **r, int ri, ClosureColor **x, int xi)
+osl_closure_assign_indexed (void **_r, int ri, void **_x, int xi)
 {
+    ClosureColor **r = (ClosureColor **)_r;
+    ClosureColor **x = (ClosureColor **)_x;
     *(r[ri]) = *(x[xi]);
 }
 
 extern "C" void
-osl_add_closure_closure (ClosureColor *r, ClosureColor *a, ClosureColor *b)
+osl_add_closure_closure (void *_r, void *_a, void *_b)
 {
+    ClosureColor *r = (ClosureColor *)_r;
+    ClosureColor *a = (ClosureColor *)_a;
+    ClosureColor *b = (ClosureColor *)_b;
     r->add (*a, *b);
 }
 
 extern "C" void
-osl_mul_closure_float (ClosureColor *r, ClosureColor *a, float b)
+osl_mul_closure_float (void *_r, void *_a, float b)
 {
+    ClosureColor *r = (ClosureColor *)_r;
+    ClosureColor *a = (ClosureColor *)_a;
     *r = *a;
     *r *= b;
 }
 
 extern "C" void
-osl_mul_closure_color (ClosureColor *r, ClosureColor *a, Color3 *b)
+osl_mul_closure_color (void *_r, void *_a, void *_b)
 {
+    ClosureColor *r = (ClosureColor *)_r;
+    ClosureColor *a = (ClosureColor *)_a;
+    Color3 *b = (Color3 *)_b;
     *r = *a;
     *r *= *b;
+}
+
+extern "C" void *
+osl_allocate_closure_component (void *r, int id, int size)
+{
+    return CLOSURE(r)->allocate_component (id, size);
 }
 
 
@@ -1933,4 +1961,30 @@ extern "C" void  osl_spline_dvdfdv(void *out, void *spline_, void *x,
       (spline, DVEC(out), DFLOAT(x), knots, knot_count);
 }
 
+/***********************************************************************
+ * Utility routines
+ */
+
+extern "C" void osl_memzero (void *_mem, int size)
+{
+    char *mem = (char *)_mem;
+    for (; size >= sizeof(size_t); mem += sizeof(size_t), size -= sizeof(size_t))
+        *((size_t *)mem) = size_t(0);
+    for (; size >= sizeof(int); mem += sizeof(int), size -= sizeof(int))
+        *((int *)mem) = 0;
+    for (; size ; mem++, size--)
+        *mem = 0;
+}
+
+extern "C" void osl_memcpy (void *_dst, const void *_src, int size)
+{
+    char *dst = (char *)_dst;
+    const char *src = (const char *)_src;
+    for (; size >= sizeof(size_t); dst += sizeof(size_t), src += sizeof(size_t), size -= sizeof(size_t))
+        *((size_t *)dst) = *((size_t *)src);
+    for (; size >= sizeof(int); dst += sizeof(int), src += sizeof(int), size -= sizeof(int))
+        *((int *)dst) = *((int *)src);
+    for (; size ; dst++, src++, size--)
+        *dst = *src;
+}
 

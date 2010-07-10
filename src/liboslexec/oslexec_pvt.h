@@ -818,8 +818,14 @@ public:
         size_t curheap = heap_allot (n * sizeof (ClosureColor *));
         ClosureColor **ptrs = (ClosureColor **) heapaddr (curheap);
         for (size_t i = 0;  i < n;  ++i)
-            ptrs[i] = &m_closures[m_closures_allotted++];
+            ptrs[i] = closure_ptr_allot ();
         return curheap;
+    }
+
+    /// Allot a closure (from the pre-allocated set of closures for this
+    /// context) and return its pointer.
+    ClosureColor * closure_ptr_allot () {
+        return &m_closures[m_closures_allotted++];
     }
 
     /// Find the named symbol in the (already-executed!) stack of

@@ -336,6 +336,15 @@ RuntimeOptimizer::llvm_constant (int i)
 
 
 llvm::Value *
+RuntimeOptimizer::llvm_constant (size_t i)
+{
+    int bits = sizeof(size_t)*8;
+    return llvm::ConstantInt::get (llvm_context(), llvm::APInt(bits,i));
+}
+
+
+
+llvm::Value *
 RuntimeOptimizer::llvm_constant (ustring s)
 {
     // Create a const size_t with the ustring contents
@@ -343,7 +352,7 @@ RuntimeOptimizer::llvm_constant (ustring s)
     llvm::Value *str = llvm::ConstantInt::get (llvm_context(),
                                llvm::APInt(bits,size_t(s.c_str()), true));
     // Then cast the int to a char*.
-    return builder().CreateIntToPtr (str, llvm_type_string());
+    return builder().CreateIntToPtr (str, llvm_type_string(), "ustring constant");
 }
 
 
@@ -1113,7 +1122,7 @@ LLVMGEN (llvm_gen_mul)
     Symbol& B = *rop.opargsym (op, 2);
 
     TypeDesc type = Result.typespec().simpletype();
-    bool is_float = Result.typespec().is_floatbased();
+    bool is_float = !Result.typespec().is_closure() && Result.typespec().is_floatbased();
     int num_components = type.aggregate;
 
     // multiplication involving closures
@@ -2532,6 +2541,12 @@ RuntimeOptimizer::llvm_assign_initial_value (const Symbol& sym)
 
     for (int a = 0, c = 0; a < arraylen;  ++a) {
         llvm::Value *arrind = sym.typespec().is_array() ? llvm_constant(a) : NULL;
+        if (sym.typespec().is_closure()) {
+            llvm::Value *init_val = llvm_call_function ("osl_closure_allot",
+                                                        sg_void_ptr());
+            llvm_store_value (init_val, sym, 0, arrind, 0);
+            continue;
+        }
         for (int i = 0; i < num_components; ++i, ++c) {
             // Fill in the constant val
             llvm::Value* init_val = 0;
@@ -2551,6 +2566,20 @@ RuntimeOptimizer::llvm_assign_initial_value (const Symbol& sym)
 
     if (sym.has_init_ops())
         build_llvm_code (sym.initbegin(), sym.initend());
+}
+
+
+
+llvm::Value *
+RuntimeOptimizer::llvm_offset_ptr (llvm::Value *ptr, int offset,
+                                   const llvm::Type *ptrtype)
+{
+    llvm::Value *i = builder().CreatePtrToInt (ptr, llvm_type_addrint());
+    i = builder().CreateAdd (i, llvm_constant ((size_t)offset));
+    ptr = builder().CreateIntToPtr (i, llvm_type_void_ptr(), "from offset");
+    if (ptrtype)
+        ptr = llvm_ptr_cast (ptr, ptrtype);
+    return ptr;
 }
 
 
@@ -2740,6 +2769,168 @@ LLVMGEN (llvm_gen_spline)
 
 
 
+// Sort out the optional keyword arguments ("sidedness", "label", etc.)
+// of the given closure op.  Alter the sidedness if specified, store
+// labels in labels[] and return the number of labels found, and store
+// in *nformal_params the number of formal parameters (i.e. those prior
+// to the first optional argument).
+static int
+read_keyword_args (RuntimeOptimizer &rop, Opcode &op, ustring *labels,
+                   ustring &sidedness, int *nformal_params)
+{
+    int nlabels = 0;
+    int nargs = op.nargs();
+    *nformal_params = nargs;
+    for (int tok = 2; tok < (nargs - 1); tok ++) {
+        Symbol &Name = *rop.opargsym (op, tok);
+        if (Name.typespec().is_string()) {
+             *nformal_params = std::min(*nformal_params, tok);
+             ustring name = * (ustring *) Name.data();
+             Symbol &Val = *rop.opargsym (op, tok + 1);
+             if (Val.typespec().is_string()) {
+                 if (name == Strings::sidedness) {
+                     sidedness = *((ustring*) Val.data());
+                     tok++;
+                 } else if (name == Strings::label) {
+                     if (nlabels == ClosurePrimitive::MAXCUSTOM) {
+                         rop.shadingsys().error ("Too many labels to closure (%s:%d)",
+                                       op.sourcefile().c_str(),
+                                       op.sourceline());
+                         return false;
+                     } else {
+                         labels[nlabels] = *((ustring*) Val.data());
+                         nlabels++;
+                         tok++;
+                     }
+                 } else {
+                     rop.shadingsys().error ("Unknown closure optional argument: \"%s\", <%s> (%s:%d)",
+                                     name.c_str(),
+                                     Val.typespec().c_str(),
+                                     op.sourcefile().c_str(),
+                                     op.sourceline());
+                     return false;
+                 }
+            } else {
+                 rop.shadingsys().error ("Malformed keyword args to closure (%s:%d)",
+                              op.sourcefile().c_str(),
+                              op.sourceline());
+                 return false;
+            }
+        }
+    }
+    return nlabels;
+}
+
+
+
+static void
+gen_fill_closure_label (RuntimeOptimizer &rop, llvm::Value *mem_void_ptr, int offset, ustring label)
+{
+    llvm::Value *dst_ptr = rop.llvm_offset_ptr (mem_void_ptr, offset,
+                                                rop.llvm_type_ustring_ptr());
+    rop.builder().CreateStore (rop.llvm_constant(label), dst_ptr);
+}
+
+
+
+LLVMGEN (llvm_gen_closure)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    ASSERT (op.nargs() >= 2); // at least the result and the ID
+
+    Symbol &Result   = *rop.opargsym (op, 0);
+    Symbol &Id       = *rop.opargsym (op, 1);
+    DASSERT(Result.typespec().is_closure());
+    DASSERT(Id.typespec().is_string());
+    ustring closure_name = *((ustring *)Id.data());
+
+    const ClosureRegistry::ClosureEntry * clentry = rop.shadingsys().find_closure(closure_name);
+    ASSERT(clentry);
+    ustring sidedness = Strings::front;
+    ustring labels[ClosurePrimitive::MAXCUSTOM+1];
+    int nargs;   // number of formal arguments
+    int nlabels = read_keyword_args(rop, op, labels, sidedness, &nargs);
+
+    llvm::Value *render_ptr = rop.llvm_constant_ptr(rop.shadingsys().renderer(), rop.llvm_type_void_ptr());
+    llvm::Value *cl_void_ptr = rop.llvm_load_value (Result);
+    llvm::Value *id_int = rop.llvm_constant(clentry->id);
+    llvm::Value *size_int = rop.llvm_constant(clentry->struct_size);
+    llvm::Value *alloc_args[3] = {cl_void_ptr, id_int, size_int};
+    llvm::Value *mem_void_ptr = rop.llvm_call_function ("osl_allocate_closure_component", alloc_args, 3);
+    if (clentry->prepare)
+    {
+        // Call clentry->prepare(renderservices *, int id, void *mem)
+        llvm::Value *funct_ptr = rop.llvm_constant_ptr((void *)clentry->prepare, rop.llvm_type_prepare_closure_func());
+        llvm::Value *args[3] = {render_ptr, id_int, mem_void_ptr};
+        rop.builder().CreateCall (funct_ptr, args, args+3);
+    }
+    else
+    {
+        llvm::Value *args[2] = {mem_void_ptr, size_int};
+        rop.llvm_call_function ("osl_memzero", args, 2);
+    }
+    ClosurePrimitive::Sidedness side = ClosurePrimitive::Front;
+    if (sidedness) {
+        if (sidedness == Strings::front)
+            side = ClosurePrimitive::Front;
+        else if (sidedness == Strings::back)
+            side = ClosurePrimitive::Back;
+        else if (sidedness == Strings::both)
+            side = ClosurePrimitive::Both;
+        else
+            side = ClosurePrimitive::None;
+    }
+
+    // Here is where we fill the struct using the params
+    for (int carg = 0; carg < (int)clentry->params.size(); ++carg)
+    {
+        const ClosureParam &p = clentry->params[carg];
+        ASSERT(p.offset < clentry->struct_size);
+        if ((carg + 2) < nargs)
+        {
+            Symbol &sym = *rop.opargsym (op, carg + 2);
+            TypeDesc t = sym.typespec().simpletype();
+            if (t.vecsemantics == TypeDesc::NORMAL || t.vecsemantics == TypeDesc::POINT)
+                t.vecsemantics = TypeDesc::VECTOR;
+            if (!sym.typespec().is_closure() && !sym.typespec().is_structure() && t == p.type)
+            {
+                llvm::Value *args[3];
+                args[0] = rop.llvm_offset_ptr (mem_void_ptr, p.offset);
+                args[1] = rop.llvm_ptr_cast(rop.getLLVMSymbolBase (sym), rop.llvm_type_void_ptr());
+                args[2] = rop.llvm_constant((int)p.type.size());
+                // We call this copy function in the hope that llvm will inline it and get rid
+                // of useless ops. It is implemented with three sequential loops. They have to be
+                // unrolled and simplified, since the number of bytes is known in advance.
+                rop.llvm_call_function ("osl_memcpy", args, 3);
+            }
+        }
+    }
+
+    //llvm::outs() << "debug " << *args[2] << "\n";
+    if (clentry->sidedness_offset >= 0) {
+        llvm::Value *dst_ptr = rop.llvm_offset_ptr (mem_void_ptr, clentry->sidedness_offset, rop.llvm_type_int_ptr());
+        rop.builder().CreateStore (rop.llvm_constant(side), dst_ptr);
+    }
+    if (clentry->labels_offset >= 0) {
+        int l;
+        for (l = 0; l < nlabels && l < clentry->max_labels; ++l)
+            gen_fill_closure_label(rop, mem_void_ptr, clentry->labels_offset + sizeof(ustring) * l, labels[l]);
+        gen_fill_closure_label(rop, mem_void_ptr, clentry->labels_offset + sizeof(ustring) * l, Labels::NONE);
+    }
+
+    if (clentry->setup)
+    {
+        // Call clentry->setup(renderservices *, int id, void *mem)
+        llvm::Value *funct_ptr = rop.llvm_constant_ptr((void *)clentry->setup, rop.llvm_type_setup_closure_func());
+        llvm::Value *args[3] = {render_ptr, id_int, mem_void_ptr};
+        rop.builder().CreateCall (funct_ptr, args, args+3);
+    }
+
+    return true;
+}
+
+
+
 static std::map<ustring,OpLLVMGen> llvm_generator_table;
 
 
@@ -2773,6 +2964,7 @@ initialize_llvm_generator_table ()
     INIT2 (ceil, llvm_gen_generic);
     INIT2 (cellnoise, llvm_gen_generic);
     INIT (clamp);
+    INIT (closure);
     INIT2 (color, llvm_gen_construct_triple);
     INIT (compassign);
     INIT2 (compl, llvm_gen_unary_op);
@@ -2974,9 +3166,9 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
         if (s.symtype() == SymTypeLocal || s.symtype() == SymTypeTemp ||
                 s.symtype() == SymTypeConst)
             getOrAllocateLLVMSymbol (s);
-        // Set initial value for params and constants
+        // Set initial value for params, constants, and closures
         if (s.symtype() == SymTypeParam || s.symtype() == SymTypeOutputParam ||
-            s.is_constant())
+            s.is_constant() || s.typespec().is_closure())
             llvm_assign_initial_value (s);
     }
     // All the symbols are stack allocated now.
@@ -3070,10 +3262,17 @@ RuntimeOptimizer::initialize_llvm_group ()
     // Set up aliases for types we use over and over
     m_llvm_type_float = llvm::Type::getFloatTy (*m_llvm_context);
     m_llvm_type_int = llvm::Type::getInt32Ty (*m_llvm_context);
+    if (sizeof(char *) == 4)
+        m_llvm_type_addrint = llvm::Type::getInt32Ty (*m_llvm_context);
+    else
+        m_llvm_type_addrint = llvm::Type::getInt64Ty (*m_llvm_context);
+    m_llvm_type_int_ptr = llvm::Type::getInt32PtrTy (*m_llvm_context);
     m_llvm_type_bool = llvm::Type::getInt1Ty (*m_llvm_context);
     m_llvm_type_void = llvm::Type::getVoidTy (*m_llvm_context);
     m_llvm_type_char_ptr = llvm::Type::getInt8PtrTy (*m_llvm_context);
+    m_llvm_type_int_ptr = llvm::Type::getInt32PtrTy (*m_llvm_context);
     m_llvm_type_float_ptr = llvm::Type::getFloatPtrTy (*m_llvm_context);
+    m_llvm_type_ustring_ptr = llvm::PointerType::get (m_llvm_type_char_ptr, 0);
 
     // A triple is a struct composed of 3 floats
     std::vector<const llvm::Type*> triplefields(3, m_llvm_type_float);
@@ -3111,6 +3310,16 @@ RuntimeOptimizer::initialize_llvm_group ()
         llvm::FunctionType *func = llvm::FunctionType::get (llvm_type(rettype), params, varargs);
         m_llvm_module->getOrInsertFunction (funcname, func);
     }
+
+#if 1
+    // Needed for closure setup
+    std::vector<const llvm::Type*> params(3);
+    params[0] = m_llvm_type_char_ptr;
+    params[1] = m_llvm_type_int;
+    params[2] = m_llvm_type_char_ptr;
+    m_llvm_type_prepare_closure_func = llvm::PointerType::getUnqual (llvm::FunctionType::get (m_llvm_type_void, params, false));
+    m_llvm_type_setup_closure_func = m_llvm_type_prepare_closure_func;
+#endif
 
     initialized_context = m_llvm_context;
 }

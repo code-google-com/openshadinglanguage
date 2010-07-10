@@ -402,6 +402,17 @@ public:
     ///
     llvm::Value *llvm_constant (int i);
 
+    /// Return an llvm::Value holding the given size_t constant.
+    ///
+    llvm::Value *llvm_constant (size_t i);
+
+    /// Return a constant void pointer to the given address
+    ///
+    llvm::Value *llvm_constant_ptr (void *p, const llvm::PointerType *type)
+    {
+        return builder().CreateIntToPtr (llvm_constant (size_t (p)), type, "const pointer");
+    }
+
     /// Return an llvm::Value holding the given integer constant.
     ///
     llvm::Value *llvm_constant (ustring s);
@@ -416,6 +427,11 @@ public:
     /// Generate LLVM code to zero out the derivatives of sym.
     ///
     void llvm_zero_derivs (const Symbol &sym);
+
+    /// Generate a pointer that is (ptrtype)((char *)ptr + offset).
+    /// If ptrtype is NULL, just return a void*.
+    llvm::Value *llvm_offset_ptr (llvm::Value *ptr, int offset,
+                                  const llvm::Type *ptrtype=NULL);
 
     /// Generate code for a call to the named function with the given arg
     /// list.  Return an llvm::Value* corresponding to the return value of
@@ -461,10 +477,15 @@ public:
     const llvm::Type *llvm_type_triple() { return m_llvm_type_triple; }
     const llvm::Type *llvm_type_matrix() { return m_llvm_type_matrix; }
     const llvm::Type *llvm_type_int() { return m_llvm_type_int; }
+    const llvm::Type *llvm_type_addrint() { return m_llvm_type_addrint; }
     const llvm::Type *llvm_type_bool() { return m_llvm_type_bool; }
     const llvm::Type *llvm_type_void() { return m_llvm_type_void; }
+    const llvm::PointerType *llvm_type_prepare_closure_func() { return m_llvm_type_prepare_closure_func; }
+    const llvm::PointerType *llvm_type_setup_closure_func() { return m_llvm_type_setup_closure_func; }
+    const llvm::PointerType *llvm_type_int_ptr() { return m_llvm_type_int_ptr; }
     const llvm::PointerType *llvm_type_void_ptr() { return m_llvm_type_char_ptr; }
     const llvm::PointerType *llvm_type_string() { return m_llvm_type_char_ptr; }
+    const llvm::PointerType *llvm_type_ustring_ptr() { return m_llvm_type_ustring_ptr; }
     const llvm::PointerType *llvm_type_float_ptr() { return m_llvm_type_float_ptr; }
     const llvm::PointerType *llvm_type_triple_ptr() { return m_llvm_type_triple_ptr; }
     const llvm::PointerType *llvm_type_matrix_ptr() { return m_llvm_type_matrix_ptr; }
@@ -514,16 +535,21 @@ private:
     llvm::Function *m_layer_func;     ///< Current layer func we're building
     const llvm::Type *m_llvm_type_float;
     const llvm::Type *m_llvm_type_int;
+    const llvm::Type *m_llvm_type_addrint;
     const llvm::Type *m_llvm_type_bool;
     const llvm::Type *m_llvm_type_void;
     const llvm::Type *m_llvm_type_triple;
     const llvm::Type *m_llvm_type_matrix;
+    const llvm::PointerType *m_llvm_type_ustring_ptr;
     const llvm::PointerType *m_llvm_type_char_ptr;
+    const llvm::PointerType *m_llvm_type_int_ptr;
     const llvm::PointerType *m_llvm_type_float_ptr;
     const llvm::PointerType *m_llvm_type_triple_ptr;
     const llvm::PointerType *m_llvm_type_matrix_ptr;
     const llvm::Type *m_llvm_type_sg;  // LLVM type of SingleShaderGlobal struct
     const llvm::Type *m_llvm_type_groupdata;  // LLVM type of group data
+    const llvm::PointerType *m_llvm_type_prepare_closure_func;
+    const llvm::PointerType *m_llvm_type_setup_closure_func;
     llvm::PassManager *m_llvm_passes;
     llvm::FunctionPassManager *m_llvm_func_passes;
 #endif
