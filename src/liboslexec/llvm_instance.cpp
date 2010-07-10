@@ -918,16 +918,21 @@ LLVMGEN (llvm_gen_printf)
             // NOTE(boulos): Only for debug mode do the derivatives get printed...
             for (int a = 0;  a < num_elements;  ++a) {
                 llvm::Value *arrind = simpletype.arraylen ? rop.llvm_constant(a) : NULL;
+                if (sym.typespec().is_closure()) {
+                    s += ourformat;
+                    llvm::Value *v = rop.llvm_load_value (sym, 0, arrind, 0);
+                    v = rop.llvm_call_function ("osl_closure_to_string", v);
+                    call_args.push_back (v);
+                    continue;
+                }
+
                 for (int c = 0; c < num_components; c++) {
                     if (c != 0 || a != 0)
                         s += " ";
                     s += ourformat;
 
                     llvm::Value* loaded = rop.llvm_load_value (sym, 0, arrind, c);
-                    if (sym.typespec().is_closure()) {
-                        loaded = rop.llvm_call_function ("osl_closure_to_string", loaded);
-                    }
-                    else if (sym.typespec().is_floatbased()) {
+                    if (sym.typespec().is_floatbased()) {
                         // C varargs convention upconverts float->double.
                         loaded = rop.builder().CreateFPExt(loaded, llvm::Type::getDoubleTy(rop.llvm_context()));
                     }
