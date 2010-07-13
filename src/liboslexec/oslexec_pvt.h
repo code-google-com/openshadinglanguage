@@ -616,6 +616,10 @@ public:
         return m_closure_registry.get_entry(name);
     }
 
+    /// Convert a color in the named space to RGB.
+    ///
+    Color3 to_rgb (ustring fromspace, float a, float b, float c);
+
 private:
     void printstats () const;
     void init_global_heap_offsets ();

@@ -1824,19 +1824,29 @@ LLVMGEN (llvm_gen_construct_triple)
             args[0] = rop.sg_void_ptr ();  // shader globals
             args[1] = rop.llvm_void_ptr (Result, d);  // vector
             args[2] = rop.llvm_load_value (Space); // from
-            if (op.opname() == op_vector || d > 0) {
-                // NB derivs are like vecs
+            if (op.opname() == op_color) {
+                if (d == 0)
+                    rop.llvm_call_function ("osl_prepend_color_from", args, 3);
+            } else if (op.opname() == op_vector || d > 0) {
+                // NB. treat derivs of points and normals as vecs
                 rop.llvm_call_function ("osl_prepend_vector_from", args, 3);
             }
             else if (op.opname() == op_point)
                 rop.llvm_call_function ("osl_prepend_point_from", args, 3);
             else if (op.opname() == op_normal)
                 rop.llvm_call_function ("osl_prepend_normal_from", args, 3);
-            else ASSERT(0 && "unsupported color ctr with color space name");
+            else
+                ASSERT(0 && "unsupported color ctr with color space name");
         }
         if (! Result.has_derivs())
             break;    // don't bother if Result doesn't have derivs
     }
+
+    // FIXME: Punt on derivs for color ctrs with space names.  We should 
+    // try to do this right, but we never had it right for the interpreter,
+    // to it's probably not an emergency.
+    if (using_space && op.opname() == op_color && Result.has_derivs())
+        rop.llvm_zero_derivs (Result);
 
     return true;
 }

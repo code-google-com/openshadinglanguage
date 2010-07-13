@@ -112,6 +112,8 @@ using namespace OSL::pvt;
 #define VEC(v) (*(Vec3 *)v)
 #define DFLOAT(x) (*(Dual2<Float> *)x)
 #define DVEC(x) (*(Dual2<Vec3> *)x)
+#define COL(x) (*(Color3 *)x)
+#define DCOL(x) (*(Dual2<Color3> *)x)
 #define CLOSURE(x) ((ClosureColor *)x)
 
 
@@ -1104,6 +1106,15 @@ osl_normalize_dvdv (void *result, void *a)
     DVEC(result) = normalize(DVEC(a));
 }
 
+
+
+extern "C" void
+osl_prepend_color_from (void *sg, void *c_, const char *from)
+{
+    ShadingContext *ctx (((SingleShaderGlobal *)sg)->context);
+    Color3 &c (COL(c_));
+    c = ctx->shadingsys().to_rgb (USTR(from), c[0], c[1], c[2]);
+}
 
 
 
