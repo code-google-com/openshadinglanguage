@@ -1058,7 +1058,7 @@ osl_length_fv (void *a)
 extern "C" void
 osl_length_dfdv (void *result, void *a)
 {
-    DVEC(result) = length(DVEC(a));
+    DFLOAT(result) = length(DVEC(a));
 }
 
 
@@ -1076,19 +1076,19 @@ osl_distance_fvv (void *a_, void *b_)
 extern "C" void
 osl_distance_dfdvdv (void *result, void *a, void *b)
 {
-    DVEC(result) = distance (DVEC(a), DVEC(b));
+    DFLOAT(result) = distance (DVEC(a), DVEC(b));
 }
 
 extern "C" void
 osl_distance_dfdvv (void *result, void *a, void *b)
 {
-    DVEC(result) = distance (DVEC(a), VEC(b));
+    DFLOAT(result) = distance (DVEC(a), VEC(b));
 }
 
 extern "C" void
 osl_distance_dfvdv (void *result, void *a, void *b)
 {
-    DVEC(result) = distance (VEC(a), DVEC(b));
+    DFLOAT(result) = distance (VEC(a), DVEC(b));
 }
 
 
