@@ -672,6 +672,21 @@ extern "C" float osl_smoothstep_dfdfdfdf(void *result, void* e0_, void* e1_, voi
 
 
 
+inline Dual2<float> min (const Dual2<float> &x, const Dual2<float> &y)
+{
+    return x.val() > y.val() ? y : x;
+}
+
+inline Dual2<float> max (const Dual2<float> &x, const Dual2<float> &y)
+{
+    return x.val() > y.val() ? x : y;
+}
+
+MAKE_BINARY_PERCOMPONENT_OP (min, std::min, min);
+MAKE_BINARY_PERCOMPONENT_OP (max, std::max, max);
+
+
+
 // point = M * point
 extern "C" float osl_transform_vmv(void *result, void* M_, void* v_)
 {

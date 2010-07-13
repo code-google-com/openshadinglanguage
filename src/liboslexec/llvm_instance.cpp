@@ -1384,43 +1384,6 @@ LLVMGEN (llvm_gen_neg)
 
 
 
-// Implementation for both min and max
-LLVMGEN (llvm_gen_minmax)
-{
-    Opcode &op (rop.inst()->ops()[opnum]);
-    Symbol& Result = *rop.opargsym (op, 0);
-    Symbol& X = *rop.opargsym (op, 1);
-    Symbol& Y = *rop.opargsym (op, 2);
-
-    TypeDesc type = Result.typespec().simpletype();
-    bool is_float = Result.typespec().is_floatbased();
-    int num_components = type.aggregate;
-    for (int i = 0; i < num_components; i++) {
-        llvm::Value *x = rop.llvm_load_value (X, 0, i, type);
-        llvm::Value *y = rop.llvm_load_value (Y, 0, i, type);
-        llvm::Value *cond = NULL;
-        if (op.opname() == op_min)
-            cond = is_float ? rop.builder().CreateFCmpULT(x, y)
-                            : rop.builder().CreateICmpSLT(x, y);
-        else
-            cond = is_float ? rop.builder().CreateFCmpULT(y, x)
-                            : rop.builder().CreateICmpSLT(y, x);
-        llvm::Value *val = rop.builder().CreateSelect (cond, x, y);
-        rop.llvm_store_value (val, Result, 0, i);
-        if (Result.has_derivs()) {
-            for (int d = 1; d <= 2; ++d) {
-                llvm::Value *xd = rop.llvm_load_value (X, d, i, type);
-                llvm::Value *yd = rop.llvm_load_value (Y, d, i, type);
-                llvm::Value *val = rop.builder().CreateSelect (cond, xd, yd);
-                rop.llvm_store_value (val, Result, d, i);
-            }
-        }
-    }
-    return true;
-}
-
-
-
 // Implementation for clamp
 LLVMGEN (llvm_gen_clamp)
 {
@@ -3026,8 +2989,8 @@ initialize_llvm_generator_table ()
     INIT (matrix);
     INIT (mxcompassign);
     INIT (mxcompref);
-    INIT2 (max, llvm_gen_minmax);
-    INIT2 (min, llvm_gen_minmax);
+    INIT2 (min, llvm_gen_generic);
+    INIT2 (max, llvm_gen_generic);
     //stdosl.h   INIT (mix);
     INIT (mod);
     INIT (mul);
