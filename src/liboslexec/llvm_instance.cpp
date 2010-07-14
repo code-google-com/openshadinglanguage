@@ -2514,6 +2514,8 @@ RuntimeOptimizer::llvm_assign_initial_value (const Symbol& sym)
     if (sym.valuesource() == Symbol::ConnectedVal &&
           !sym.typespec().is_closure())
         return;
+    if (sym.typespec().is_closure() && sym.symtype() == SymTypeGlobal)
+        return;
 
     int num_components = sym.typespec().simpletype().aggregate;
     int arraylen = std::max (1, sym.typespec().arraylength());
