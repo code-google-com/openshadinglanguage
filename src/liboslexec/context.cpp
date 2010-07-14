@@ -176,8 +176,8 @@ ShadingContext::execute_llvm (ShaderUse use, Runflag *rf, int *ind, int nind)
             my_sg.dPdu = sg.dPdu[i];
             my_sg.dPdv = sg.dPdv[i];
             my_sg.time = sg.time[i];
-            my_sg.dtime = sg.dtime[i];
-            my_sg.dPdtime = sg.dPdtime[i];
+            my_sg.dtime = sg.dtime.is_null() ? 0.0f : sg.dtime[i];
+            my_sg.dPdtime = sg.dtime.is_null() ? Vec3(0,0,0) : sg.dPdtime[i];
             my_sg.Ps = sg.Ps[i];
             my_sg.dPsdx = sg.dPsdx[i];
             my_sg.dPsdy = sg.dPsdy[i];
