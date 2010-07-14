@@ -2511,7 +2511,8 @@ void
 RuntimeOptimizer::llvm_assign_initial_value (const Symbol& sym)
 {
     // Don't write over connections!
-    if (sym.valuesource() == Symbol::ConnectedVal)
+    if (sym.valuesource() == Symbol::ConnectedVal &&
+          !sym.typespec().is_closure())
         return;
 
     int num_components = sym.typespec().simpletype().aggregate;
@@ -3133,10 +3134,12 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
     // Setup the symbols
     m_named_values.clear ();
     BOOST_FOREACH (Symbol &s, inst()->symbols()) {
+#if 0 // No need -- trust LLVM to eliminate these
         // Skip scalar int or float constants -- we always inline them
         if (s.is_constant() && !s.typespec().is_closure() &&
             (s.typespec().is_float() || s.typespec().is_int()))
             continue;
+#endif
         // Skip structure placeholders
         if (s.typespec().is_structure())
             continue;
