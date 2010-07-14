@@ -1842,7 +1842,7 @@ extern "C" int osl_iscameraray (void *sg_)
 
 inline Vec3 calculatenormal(void *P_, bool flipHandedness)
 {
-    Dual2<Vec3> tmpP = DVEC(P_);
+    Dual2<Vec3> &tmpP (DVEC(P_));
     if (flipHandedness)
         return tmpP.dy().cross( tmpP.dx());
     else

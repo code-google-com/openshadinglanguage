@@ -2666,13 +2666,19 @@ LLVMGEN (llvm_gen_calculatenormal)
 {
     Opcode &op (rop.inst()->ops()[opnum]);
 
-    DASSERT (op.nargs() == 1);
+    DASSERT (op.nargs() == 2);
 
     Symbol& Result = *rop.opargsym (op, 0);
     Symbol& P      = *rop.opargsym (op, 1);
 
-    DASSERT (Result.typespec().is_triple() && P.typespec().is_triple() &&
-             P.has_derivs());
+    DASSERT (Result.typespec().is_triple() && P.typespec().is_triple());
+    if (! P.has_derivs()) {
+        llvm::Value *zero = rop.llvm_constant (0.0f);
+        for (int i = 0;  i < 3;  ++i)
+            rop.llvm_store_value (zero, Result, 0, NULL, i);
+        rop.llvm_zero_derivs (Result);
+        return true;
+    }
     
     std::vector<llvm::Value *> args;
     args.push_back (rop.llvm_void_ptr (Result));
@@ -3224,6 +3230,10 @@ RuntimeOptimizer::build_llvm_group ()
 void
 RuntimeOptimizer::initialize_llvm_group ()
 {
+    // I don't think we actually need to lock here (lg)
+    // static spin_mutex mutex;
+    // spin_lock lock (mutex);
+
     m_llvm_context = m_shadingsys.llvm_context ();
     m_llvm_module = m_shadingsys.m_llvm_module;
     ASSERT (m_llvm_context && m_llvm_module);
@@ -3234,13 +3244,6 @@ RuntimeOptimizer::initialize_llvm_group ()
     // created on demand.
     m_llvm_type_sg = NULL;
     m_llvm_type_groupdata = NULL;
-
-    // Now we have things we only need to do once for each context.
-    static spin_mutex mutex;
-    static llvm::LLVMContext *initialized_context = NULL;
-    spin_lock lock (mutex);
-    if (initialized_context == m_llvm_context)
-        return;   // already initialized for this context
 
     // Set up aliases for types we use over and over
     m_llvm_type_float = llvm::Type::getFloatTy (*m_llvm_context);
@@ -3294,7 +3297,6 @@ RuntimeOptimizer::initialize_llvm_group ()
         m_llvm_module->getOrInsertFunction (funcname, func);
     }
 
-#if 1
     // Needed for closure setup
     std::vector<const llvm::Type*> params(3);
     params[0] = m_llvm_type_char_ptr;
@@ -3302,9 +3304,6 @@ RuntimeOptimizer::initialize_llvm_group ()
     params[2] = m_llvm_type_char_ptr;
     m_llvm_type_prepare_closure_func = llvm::PointerType::getUnqual (llvm::FunctionType::get (m_llvm_type_void, params, false));
     m_llvm_type_setup_closure_func = m_llvm_type_prepare_closure_func;
-#endif
-
-    initialized_context = m_llvm_context;
 }
 
 
