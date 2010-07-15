@@ -2296,9 +2296,19 @@ RuntimeOptimizer::track_variable_dependencies ()
             // depend on those arguments.
             if (op.argtakesderivs_all()) {
                 for (int a = 0;  a < op.nargs();  ++a)
-                    if (op.argtakesderivs(a))
+                    if (op.argtakesderivs(a)) {
+                        // Careful -- not all globals can take derivs
+                        Symbol &s (*opargsym (op, a));
+                        if (s.symtype() == SymTypeGlobal &&
+                            ! (s.mangled() == Strings::P ||
+                               s.mangled() == Strings::I ||
+                               s.mangled() == Strings::u ||
+                               s.mangled() == Strings::v ||
+                               s.mangled() == Strings::Ps))
+                            continue;
                         add_dependency (symdeps, DerivSym,
                                         inst()->arg(a+op.firstarg()));
+                    }
             }
         }
     }
@@ -2326,6 +2336,17 @@ RuntimeOptimizer::track_variable_dependencies ()
         if (! s->typespec().is_closure() && 
                 s->typespec().elementtype().is_floatbased())
             s->has_derivs (true);
+    }
+
+    // Only some globals are allowed to have derivatives
+    BOOST_FOREACH (Symbol &s, inst()->symbols()) {
+        if (s.symtype() == SymTypeGlobal &&
+            ! (s.mangled() == Strings::P ||
+               s.mangled() == Strings::I ||
+               s.mangled() == Strings::u ||
+               s.mangled() == Strings::v ||
+               s.mangled() == Strings::Ps))
+            s.has_derivs (false);
     }
 
 #if 0
