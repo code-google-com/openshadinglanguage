@@ -81,6 +81,12 @@ typedef shared_ptr<ShaderInstance> ShaderInstanceRef;
 
 
 
+/// Signature of the function that LLVM generates to run the shader
+/// group.
+typedef void (*RunLLVMGroupFunc)(void* /* shader globals */, void*); 
+
+
+
 /// Like an int (of type T), but also internally keeps track of the 
 /// maximum value is has held, and the total "requested" deltas.
 template<typename T>
@@ -435,16 +441,16 @@ public:
     size_t llvm_groupdata_size () const { return m_llvm_groupdata_size; }
     void llvm_groupdata_size (size_t size) { m_llvm_groupdata_size = size; }
 
-    llvm::Function* llvm_compiled_version() const {
+    RunLLVMGroupFunc llvm_compiled_version() const {
         return m_llvm_compiled_version;
     }
-    void llvm_compiled_version (llvm::Function *func) {
+    void llvm_compiled_version (RunLLVMGroupFunc func) {
         m_llvm_compiled_version = func;
     }
 
 private:
     std::vector<ShaderInstanceRef> m_layers;
-    llvm::Function* m_llvm_compiled_version;
+    RunLLVMGroupFunc m_llvm_compiled_version;
     size_t m_llvm_groupdata_size;
     volatile bool m_optimized;       ///< Is it already optimized?
     mutex m_mutex;                   ///< Thread-safe optimization

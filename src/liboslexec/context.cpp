@@ -37,7 +37,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "oslexec_pvt.h"
 #include "oslops.h"
-#include "llvm_headers.h"
 
 #ifdef OSL_NAMESPACE
 namespace OSL_NAMESPACE {
@@ -138,9 +137,7 @@ ShadingContext::execute_llvm (ShaderUse use, Runflag *rf, int *ind, int nind)
 #if USE_LLVM
     ShaderGroup &sgroup (attribs()->shadergroup (use));
 
-    typedef void (*RunLayerFunc)(SingleShaderGlobal*, void*); 
-    llvm::ExecutionEngine* ee = shadingsys().ExecutionEngine();
-    RunLayerFunc run_func = reinterpret_cast<RunLayerFunc>(ee->getPointerToFunction(sgroup.llvm_compiled_version()));
+    RunLLVMGroupFunc run_func = sgroup.llvm_compiled_version();
 
     SingleShaderGlobal my_sg;
     // Ignore runflags for now

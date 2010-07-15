@@ -3222,7 +3222,10 @@ RuntimeOptimizer::build_llvm_group ()
 #endif
     }
 
-    m_group.llvm_compiled_version (func);
+    // Force the JIT to happen now, while we have the lock
+    llvm::ExecutionEngine* ee = shadingsys().ExecutionEngine();
+    RunLLVMGroupFunc f = (RunLLVMGroupFunc) ee->getPointerToFunction(func);
+    m_group.llvm_compiled_version (f);
 }
 
 
