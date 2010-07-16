@@ -156,12 +156,13 @@ ShadingContext::execute_llvm (ShaderUse use, Runflag *rf, int *ind, int nind)
 #else
             { int i=0; ASSERT(0 && "not runflags, indices, or spans!");
 #endif
+            static Vec3 vzero (0,0,0);
             my_sg.P = sg.P[i];
             my_sg.dPdx = sg.dPdx[i];
             my_sg.dPdy = sg.dPdy[i];
-            my_sg.I = sg.I[i];
-            my_sg.dIdx = sg.dIdx[i];
-            my_sg.dIdy = sg.dIdy[i];
+            my_sg.I = sg.I.is_null() ? vzero : sg.I[i];
+            my_sg.dIdx = sg.dIdx.is_null() ? vzero : sg.dIdx[i];
+            my_sg.dIdy = sg.dIdy.is_null() ? vzero : sg.dIdy[i];
             my_sg.N = sg.N[i];
             my_sg.Ng = sg.Ng[i];
             my_sg.u = sg.u[i];
@@ -174,16 +175,16 @@ ShadingContext::execute_llvm (ShaderUse use, Runflag *rf, int *ind, int nind)
             my_sg.dPdv = sg.dPdv[i];
             my_sg.time = sg.time[i];
             my_sg.dtime = sg.dtime.is_null() ? 0.0f : sg.dtime[i];
-            my_sg.dPdtime = sg.dtime.is_null() ? Vec3(0,0,0) : sg.dPdtime[i];
-            my_sg.Ps = sg.Ps[i];
-            my_sg.dPsdx = sg.dPsdx[i];
-            my_sg.dPsdy = sg.dPsdy[i];
+            my_sg.dPdtime = sg.dtime.is_null() ? vzero : sg.dPdtime[i];
+            my_sg.Ps = sg.Ps.is_null() ? vzero : sg.Ps[i];
+            my_sg.dPsdx = sg.dPsdx.is_null() ? vzero : sg.dPsdx[i];
+            my_sg.dPsdy = sg.dPsdy.is_null() ? vzero : sg.dPsdy[i];
             my_sg.renderstate = sg.renderstate[i];
             my_sg.context = this;
             my_sg.object2common = sg.object2common[i];
             my_sg.shader2common = sg.shader2common[i];
             my_sg.Ci = sg.Ci[i];
-            my_sg.surfacearea = sg.surfacearea[i];
+            my_sg.surfacearea = sg.surfacearea.is_null() ? 1.0f : sg.surfacearea[i];
             my_sg.iscameraray = sg.iscameraray;
             my_sg.isshadowray = sg.isshadowray;
             my_sg.flipHandedness = sg.flipHandedness;
