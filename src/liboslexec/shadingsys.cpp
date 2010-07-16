@@ -135,6 +135,7 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
       m_commonspace_synonym("world"),
       m_in_group (false),
       m_global_heap_total (0),
+      m_llvm_context (NULL),
       m_llvm_module (NULL),
       m_llvm_exec (NULL)
 {
@@ -206,9 +207,23 @@ ShadingSystemImpl::~ShadingSystemImpl ()
     // we asked for a shared one.
 
 #if USE_LLVM
-//    delete m_llvm_exec;
-//    delete m_llvm_module;
+
+    delete m_llvm_exec;
+    // NOTE(boulos): Deleting the execution engine should in theory
+    // clean up the module. Calling delete on the module here results
+    // in a crash (suggesting theory meets practice).
+
+    // delete m_llvm_module;
+
     delete m_llvm_context;
+
+    // FIXME(boulos): According to the docs, we should also call
+    // llvm_shutdown once we're done. However, ~ShadingSystemImpl
+    // seems like the wrong place for this since in a multi-threaded
+    // implementation we might destroy this impl while having others
+    // outstanding. I'll leave this as a fixme for now.
+
+    //llvm::llvm_shutdown();
 #endif
 }
 
