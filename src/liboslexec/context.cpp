@@ -189,6 +189,15 @@ ShadingContext::execute_llvm (ShaderUse use, Runflag *rf, int *ind, int nind)
             my_sg.isshadowray = sg.isshadowray;
             my_sg.flipHandedness = sg.flipHandedness;
             run_func (&my_sg, &m_heap[groupdata_size*i]);
+
+//            if (use == ShadUseDisplacement) {
+            // FIXME -- should only do this extra work for disp shaders,
+            // but at the moment we only use ShadUseSurface, even for disp!
+                sg.P[i] = my_sg.P;
+                sg.dPdx[i] = my_sg.dPdx;
+                sg.dPdy[i] = my_sg.dPdy;
+                sg.N[i] = my_sg.N;
+//            }
         }
     }
 #endif /* USE_LLVM */
