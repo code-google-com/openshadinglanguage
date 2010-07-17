@@ -2545,8 +2545,29 @@ RuntimeOptimizer::llvm_assign_initial_value (const Symbol& sym)
     if (sym.has_derivs())
         llvm_zero_derivs (sym);
 
+    // Handle init ops.
+    // FIXME -- really, we shouldn't do the defaut value assignments above
+    // if there are init ops present.  LLVM probably optimizes them away,
+    // but we may as well eliminate them.
     if (sym.has_init_ops())
         build_llvm_code (sym.initbegin(), sym.initend());
+
+    // Handle interpolated params.
+    // FIXME -- really, we shouldn't assign defaults or run init ops if
+    // the values are interpolated.  The perf hit is probably small, since
+    // there are so few interpolated params, but we should come back and
+    // fix this later.
+    if ((sym.symtype() == SymTypeParam || sym.symtype() == SymTypeOutputParam)
+        && ! sym.lockgeom()) {
+        std::vector<llvm::Value*> args;
+        args.push_back (sg_void_ptr());
+        args.push_back (llvm_constant (sym.name()));
+        args.push_back (llvm_constant (sym.typespec().simpletype()));
+        args.push_back (llvm_constant ((int) sym.has_derivs()));
+        args.push_back (llvm_void_ptr (llvm_get_pointer (sym)));
+        llvm_call_function ("osl_bind_interpolated_param",
+                            &args[0], args.size());                            
+    }
 }
 
 

@@ -115,7 +115,7 @@ using namespace OSL::pvt;
 #define COL(x) (*(Color3 *)x)
 #define DCOL(x) (*(Dual2<Color3> *)x)
 #define CLOSURE(x) ((ClosureColor *)x)
-
+#define TYPEDESC(x) (*(TypeDesc *)&x)
 
 extern "C" const char *
 osl_closure_to_string (void *c)
@@ -1999,3 +1999,16 @@ extern "C" void osl_memcpy (void *_dst, const void *_src, int size)
         *dst = *src;
 }
 
+
+extern "C" int
+osl_bind_interpolated_param (void *sg_, const void *name, long long type,
+                             int has_derivs, void *result)
+{
+    SingleShaderGlobal *sg = (SingleShaderGlobal *)sg_;
+    RendererServices *renderer (sg->context->renderer());
+
+    static Runflag runflags[1] = { RunflagOn };
+    return renderer->get_userdata (runflags, 1, has_derivs, USTR(name),
+                                   TYPEDESC(type),
+                                   &sg->renderstate, 0, result, 0);
+}
