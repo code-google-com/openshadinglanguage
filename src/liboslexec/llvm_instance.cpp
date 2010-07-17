@@ -3179,11 +3179,21 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
         if (s.symtype() == SymTypeLocal || s.symtype() == SymTypeTemp ||
                 s.symtype() == SymTypeConst)
             getOrAllocateLLVMSymbol (s);
-        // Set initial value for params, constants, and closures
-        if (s.symtype() == SymTypeParam || s.symtype() == SymTypeOutputParam ||
-            s.is_constant() || s.typespec().is_closure())
+        // Set initial value for constants, and closures
+        if (s.symtype() != SymTypeParam && s.symtype() != SymTypeOutputParam &&
+            (s.is_constant() || s.typespec().is_closure()))
             llvm_assign_initial_value (s);
     }
+    // make a second pass for the parameters (which may make use of locals and constants from the first pass)
+    BOOST_FOREACH (Symbol &s, inst()->symbols()) {
+        // Skip structure placeholders
+        if (s.typespec().is_structure())
+            continue;
+        // Set initial value for params (may contain init ops)
+        if (s.symtype() == SymTypeParam || s.symtype() == SymTypeOutputParam)
+            llvm_assign_initial_value (s);
+    }
+
     // All the symbols are stack allocated now.
 
     // Mark all the basic blocks, including allocating llvm::BasicBlock
