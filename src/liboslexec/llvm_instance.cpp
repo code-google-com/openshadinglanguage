@@ -2481,13 +2481,16 @@ LLVMGEN (llvm_gen_getattribute)
         name += "v";
     else if (Destination.typespec().is_normal())
         name += "n";
+    else if (Destination.typespec().is_color())
+        name += "c";
     else if (Destination.typespec().is_matrix())
         name += "m";
     else if (Destination.typespec().is_string())
         name += "s";
     else if (Destination.typespec().is_int())
         name += "i";
-        else ASSERT (0);
+    else
+        ASSERT (0);
 
     std::vector<llvm::Value *> args;
     args.push_back (rop.sg_void_ptr());

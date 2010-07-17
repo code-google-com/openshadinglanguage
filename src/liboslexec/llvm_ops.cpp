@@ -1709,6 +1709,18 @@ extern "C" int osl_get_attribute_p(void *sg_,
                               array_lookup, index, TypeDesc::TypePoint, dest);   
 }
 
+extern "C" int osl_get_attribute_c(void *sg_,
+                                   int   dest_derivs,
+                                   void *obj_name_,
+                                   void *attr_name_,
+                                   int   array_lookup,
+                                   int   index,
+                                   void *dest)
+{
+    return osl_get_attribute (sg_, dest_derivs, obj_name_, attr_name_,
+                              array_lookup, index, TypeDesc::TypeColor, dest);   
+}
+
 extern "C" int osl_get_attribute_m(void *sg_,
                                    int   dest_derivs,
                                    void *obj_name_,
