@@ -2020,7 +2020,11 @@ osl_bind_interpolated_param (void *sg_, const void *name, long long type,
     RendererServices *renderer (sg->context->renderer());
 
     static Runflag runflags[1] = { RunflagOn };
-    return renderer->get_userdata (runflags, 1, has_derivs, USTR(name),
-                                   TYPEDESC(type),
-                                   &sg->renderstate, 0, result, 0);
+    return renderer->has_userdata (USTR(name), TYPEDESC(type), &sg->renderstate)
+             && renderer->get_userdata (runflags, 1, has_derivs, USTR(name),
+                                        TYPEDESC(type),
+                                        &sg->renderstate, 0, result, 0);
+    // FIXME -- these should be combined into a single lookup.  We only
+    // need the first now because in Arnold get_userdata asserts if called
+    // and the user data doesn't exist.
 }
