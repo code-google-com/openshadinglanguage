@@ -801,53 +801,70 @@ RuntimeOptimizer::llvm_call_function (const char *name, const Symbol &A,
 
 
 
-LLVMGEN (llvm_gen_useparam)
+/// Execute the upstream connection (if any, and if not yet run) that
+/// establishes the value of symbol sym, which has index 'symindex'
+/// within the current layer rop.inst().  If already_run is not NULL,
+/// it points to a vector of layer indices that are known to have been 
+/// run -- those can be skipped without dynamically checking their
+/// execution status.
+static void
+llvm_run_connected_layer (RuntimeOptimizer &rop, Symbol &sym, int symindex,
+                          std::vector<int> *already_run = NULL)
 {
-    Opcode &op (rop.inst()->ops()[opnum]);
+    if (sym.valuesource() != Symbol::ConnectedVal)
+        return;  // Nothing to do
+
     // Prep the args that will be used for all earlier-layer invocations
     llvm::Value *args[2];
     args[0] = rop.sg_ptr ();
     args[1] = rop.groupdata_ptr ();
 
+    for (int c = 0;  c < rop.inst()->nconnections();  ++c) {
+        const Connection &con (rop.inst()->connection (c));
+        // If the connection gives a value to this param
+        if (con.dst.param == symindex) {
+            if (already_run &&
+                std::find (already_run->begin(), already_run->end(), con.srclayer) != already_run->end())
+                continue;  // already ran that one
+            // If the earlier layer it comes from has not yet
+            // been executed, do so now.
+            //if (! execlayers[con.srclayer].executed())
+            //    run_connected_layer (con.srclayer);
+            ShaderInstance *parent = rop.group()[con.srclayer];
+            llvm::Value *executed = rop.builder().CreateLoad (rop.layer_run_ptr(con.srclayer));
+            executed = rop.builder().CreateICmpEQ (executed, rop.llvm_constant(0));
+            // Make code that looks like:
+            //   if (groupdata->run[parentlayer] == 0) {
+            //       parent_layer (sg, groupdata);
+            //       groupdata->run[parentlayer] = 1;
+            //   }
+            llvm::BasicBlock *then_block = rop.llvm_new_basic_block ("");
+            llvm::BasicBlock *after_block = rop.llvm_new_basic_block ("");
+            rop.builder().CreateCondBr (executed, then_block, after_block);
+            rop.builder().SetInsertPoint (then_block);
+            std::string name = Strutil::format ("%s_%d", parent->layername().c_str(), parent->id());
+            rop.llvm_call_function (name.c_str(), args, 2);
+            rop.builder().CreateBr (after_block);
+            rop.builder().SetInsertPoint (after_block);
+            if (already_run)
+                already_run->push_back (con.srclayer);  // mark it
+        }
+    }
+}
+
+
+
+LLVMGEN (llvm_gen_useparam)
+{
     // If we have multiple params needed on this statement, don't waste
     // time checking the same upstream layer more than once.
     std::vector<int> already_run;
 
+    Opcode &op (rop.inst()->ops()[opnum]);
     for (int i = 0;  i < op.nargs();  ++i) {
         Symbol& sym = *rop.opargsym (op, i);
         int symindex = rop.inst()->arg (op.firstarg()+i);
-        if (sym.valuesource() != Symbol::ConnectedVal)
-            continue;  // Nothing to do
-
-        for (int c = 0;  c < rop.inst()->nconnections();  ++c) {
-            const Connection &con (rop.inst()->connection (c));
-            // If the connection gives a value to this param
-            if (con.dst.param == symindex) {
-                if (std::find (already_run.begin(), already_run.end(), con.srclayer) != already_run.end())
-                    continue;  // already ran that one
-                // If the earlier layer it comes from has not yet
-                // been executed, do so now.
-                //if (! execlayers[con.srclayer].executed())
-                //    run_connected_layer (con.srclayer);
-                ShaderInstance *parent = rop.group()[con.srclayer];
-                llvm::Value *executed = rop.builder().CreateLoad (rop.layer_run_ptr(con.srclayer));
-                executed = rop.builder().CreateICmpEQ (executed, rop.llvm_constant(0));
-                // Make code that looks like:
-                //   if (groupdata->run[parentlayer] == 0) {
-                //       parent_layer (sg, groupdata);
-                //       groupdata->run[parentlayer] = 1;
-                //   }
-                llvm::BasicBlock *then_block = rop.llvm_new_basic_block ("");
-                llvm::BasicBlock *after_block = rop.llvm_new_basic_block ("");
-                rop.builder().CreateCondBr (executed, then_block, after_block);
-                rop.builder().SetInsertPoint (then_block);
-                std::string name = Strutil::format ("%s_%d", parent->layername().c_str(), parent->id());
-                rop.llvm_call_function (name.c_str(), args, 2);
-                rop.builder().CreateBr (after_block);
-                rop.builder().SetInsertPoint (after_block);
-                already_run.push_back (con.srclayer);  // mark it
-            }
-        }
+        llvm_run_connected_layer (rop, sym, symindex, &already_run);
     }
     return true;
 }
@@ -2513,47 +2530,55 @@ LLVMGEN (llvm_gen_getattribute)
 void
 RuntimeOptimizer::llvm_assign_initial_value (const Symbol& sym)
 {
-    // Don't write over connections!
+    // Don't write over connections!  Connection values are written into
+    // our layer when the earlier layer is run, as part of its code.  So
+    // we just don't need to initialize it here at all.
     if (sym.valuesource() == Symbol::ConnectedVal &&
           !sym.typespec().is_closure())
         return;
     if (sym.typespec().is_closure() && sym.symtype() == SymTypeGlobal)
         return;
 
-    int num_components = sym.typespec().simpletype().aggregate;
     int arraylen = std::max (1, sym.typespec().arraylength());
 
-    for (int a = 0, c = 0; a < arraylen;  ++a) {
-        llvm::Value *arrind = sym.typespec().is_array() ? llvm_constant(a) : NULL;
-        if (sym.typespec().is_closure()) {
+    if (sym.typespec().is_closure()) {
+        // Closures need to get their storage before anything can be
+        // assigned to them.
+        for (int a = 0; a < arraylen;  ++a) {
             llvm::Value *init_val = llvm_call_function ("osl_closure_allot",
                                                         sg_void_ptr());
+            llvm::Value *arrind = sym.typespec().is_array() ? llvm_constant(a) : NULL;
             llvm_store_value (init_val, sym, 0, arrind, 0);
-            continue;
-        }
-        for (int i = 0; i < num_components; ++i, ++c) {
-            // Fill in the constant val
-            llvm::Value* init_val = 0;
-            TypeSpec elemtype = sym.typespec().elementtype();
-            if (elemtype.is_floatbased())
-                init_val = llvm_constant (((float*)sym.data())[c]);
-            else if (elemtype.is_string())
-                init_val = llvm_constant (((ustring*)sym.data())[c]);
-            else if (elemtype.is_int())
-                init_val = llvm_constant (((int*)sym.data())[c]);
-            ASSERT (init_val);
-            llvm_store_value (init_val, sym, 0, arrind, i);
         }
     }
-    if (sym.has_derivs())
-        llvm_zero_derivs (sym);
 
-    // Handle init ops.
-    // FIXME -- really, we shouldn't do the defaut value assignments above
-    // if there are init ops present.  LLVM probably optimizes them away,
-    // but we may as well eliminate them.
-    if (sym.has_init_ops())
+    if (sym.has_init_ops() && sym.valuesource() == Symbol::DefaultVal) {
+        // Handle init ops.
         build_llvm_code (sym.initbegin(), sym.initend());
+    } else {
+        // Use default value
+        int num_components = sym.typespec().simpletype().aggregate;
+        for (int a = 0, c = 0; a < arraylen;  ++a) {
+            llvm::Value *arrind = sym.typespec().is_array() ? llvm_constant(a) : NULL;
+            if (sym.typespec().is_closure())
+                continue;
+            for (int i = 0; i < num_components; ++i, ++c) {
+                // Fill in the constant val
+                llvm::Value* init_val = 0;
+                TypeSpec elemtype = sym.typespec().elementtype();
+                if (elemtype.is_floatbased())
+                    init_val = llvm_constant (((float*)sym.data())[c]);
+                else if (elemtype.is_string())
+                    init_val = llvm_constant (((ustring*)sym.data())[c]);
+                else if (elemtype.is_int())
+                    init_val = llvm_constant (((int*)sym.data())[c]);
+                ASSERT (init_val);
+                llvm_store_value (init_val, sym, 0, arrind, i);
+            }
+        }
+        if (sym.has_derivs())
+            llvm_zero_derivs (sym);
+    }
 
     // Handle interpolated params.
     // FIXME -- really, we shouldn't assign defaults or run init ops if
@@ -3149,10 +3174,6 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
     delete m_builder;
     m_builder = new llvm::IRBuilder<> (entry_bb);
 
-    // Allocate the group data
-//    m_llvm_groupdata_ptr = builder().CreateAlloca (groupdata_type,
-//                                               llvm_constant(1), "$groupdata");
-
     // If this is the group entry point, clear all the "layer executed"
     // bits.  If it's not the group entry (but rather is an upstream
     // node), then set its bit!
@@ -3184,7 +3205,8 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
             (s.is_constant() || s.typespec().is_closure()))
             llvm_assign_initial_value (s);
     }
-    // make a second pass for the parameters (which may make use of locals and constants from the first pass)
+    // make a second pass for the parameters (which may make use of
+    // locals and constants from the first pass)
     BOOST_FOREACH (Symbol &s, inst()->symbols()) {
         // Skip structure placeholders
         if (s.typespec().is_structure())
@@ -3214,6 +3236,7 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
                         "no support for individual element/channel connection");
                 Symbol *srcsym (inst()->symbol (con.src.param));
                 Symbol *dstsym (child->symbol (con.dst.param));
+                llvm_run_connected_layer (*this, *srcsym, con.src.param, NULL);
                 if (srcsym->typespec().is_array()) {
                     for (int i = 0;  i < srcsym->typespec().arraylength();  ++i)
                         llvm_assign_impl (*this, *dstsym, *srcsym, i);
