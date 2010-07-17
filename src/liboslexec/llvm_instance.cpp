@@ -1134,10 +1134,10 @@ LLVMGEN (llvm_gen_mul)
     if (Result.typespec().is_closure()) {
         if (A.typespec().is_closure() && B.typespec().is_float())
             rop.llvm_call_function ("osl_mul_closure_float", Result, A, B);
+        else if (A.typespec().is_closure() && B.typespec().is_color())
+           rop.llvm_call_function ("osl_mul_closure_color", Result, A, B);
         else if (A.typespec().is_float() && B.typespec().is_closure())
             rop.llvm_call_function ("osl_mul_closure_float", Result, B, A);
-        else if (A.typespec().is_closure() && B.typespec().is_color())
-            rop.llvm_call_function ("osl_mul_closure_color", Result, A, B);
         else if (A.typespec().is_color() && B.typespec().is_closure())
             rop.llvm_call_function ("osl_mul_closure_color", Result, B, A);
         else
