@@ -3222,7 +3222,7 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
     // records for each.
     find_basic_blocks (true);
 
-    build_llvm_code (inst()->maincodebegin(), inst()->maincodeend(), entry_bb);
+    build_llvm_code (inst()->maincodebegin(), inst()->maincodeend());
 
     // Transfer all of this layer's outputs into the downstream shader's
     // inputs.
