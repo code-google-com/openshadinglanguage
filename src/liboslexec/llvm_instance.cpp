@@ -163,12 +163,13 @@ typedef bool (*OpLLVMGen) (LLVMGEN_ARGS);
 /// checking.  Note that nothing that's compiled into llvm_ops.cpp ought
 /// to need a declaration here.
 static const char *llvm_helper_function_table[] = {
+#if 0
     "osl_closure_clear", "xC",
     "osl_closure_assign", "xCC",
     "osl_add_closure_closure", "xCCC",
     "osl_mul_closure_float", "xCCf",
     "osl_mul_closure_color", "xCCc",
-
+#endif
     NULL
 };
 
@@ -238,7 +239,7 @@ RuntimeOptimizer::llvm_type_groupdata ()
     // connected or interpolated, and output params.  Also mark those
     // symbols with their offset within the group struct.
 #ifdef DEBUG
-    std::cerr << "Group param struct:\n";
+//    std::cerr << "Group param struct:\n";
 #endif
     m_param_order_map.clear ();
     int order = 1;
@@ -261,9 +262,9 @@ RuntimeOptimizer::llvm_type_groupdata ()
                 if (offset & (align-1))
                     offset += align - (offset & (align-1));
 #ifdef DEBUG
-                std::cerr << "  " << inst->layername() << " " << sym.mangled()
-                          << " " << ts.c_str() << ", field " << order 
-                          << ", offset " << offset << "\n";
+//                std::cerr << "  " << inst->layername() << " " << sym.mangled()
+//                          << " " << ts.c_str() << ", field " << order 
+//                          << ", offset " << offset << "\n";
 #endif
                 sym.dataoffset ((int)offset);
                 offset += n * int(sym.size());
@@ -278,8 +279,8 @@ RuntimeOptimizer::llvm_type_groupdata ()
     m_llvm_type_groupdata = llvm::StructType::get (llvm_context(), fields);
 
 #ifdef DEBUG
-    llvm::errs() << "\nGroup struct = " << *m_llvm_type_groupdata << "\n";
-    llvm::errs() << "  size = " << offset << "\n";
+//    llvm::errs() << "\nGroup struct = " << *m_llvm_type_groupdata << "\n";
+//    llvm::errs() << "  size = " << offset << "\n";
 #endif
 
     return m_llvm_type_groupdata;
@@ -737,7 +738,8 @@ RuntimeOptimizer::llvm_call_function (const char *name,
     for (int i = 0;  i < nargs;  ++i)
         llvm::outs() << "\t" << *(args[i]) << "\n";
 #endif
-    return builder().CreateCall (func, args, args+nargs);
+    llvm::Value *r = builder().CreateCall (func, args, args+nargs);
+    return r;
 }
 
 
@@ -797,6 +799,18 @@ RuntimeOptimizer::llvm_call_function (const char *name, const Symbol &A,
     args[1] = &B;
     args[2] = &C;
     return llvm_call_function (name, args, 3, deriv_ptrs);
+}
+
+
+
+void
+RuntimeOptimizer::llvm_gen_debug_printf (const std::string &message)
+{
+    ustring s = ustring::format ("(%s %s) %s", inst()->shadername().c_str(),
+                                 inst()->layername().c_str(), message.c_str());
+    llvm::Value *args[3] = { sg_void_ptr(), llvm_constant("%s\n"),
+                             llvm_constant(s) };
+    llvm_call_function ("osl_printf", args, 3);
 }
 
 
@@ -1542,12 +1556,8 @@ static bool
 llvm_assign_impl (RuntimeOptimizer &rop, Symbol &Result, Symbol &Src,
                   int arrayindex = -1)
 {
-    ASSERT (! Result.typespec().is_structure() &&
-            ! Result.typespec().is_array());
-    ASSERT (! Src.typespec().is_structure() &&
-            ! Src.typespec().is_array());
-
-    ASSERT (arrayindex == -1);  // FIXME -- do array elements later
+    ASSERT (! Result.typespec().is_structure());
+    ASSERT (! Src.typespec().is_structure());
 
     llvm::Value *arrind = arrayindex >= 0 ? rop.llvm_constant (arrayindex) : NULL;
 
@@ -1584,7 +1594,7 @@ llvm_assign_impl (RuntimeOptimizer &rop, Symbol &Result, Symbol &Src,
         for (int i = 0;  i < 4;  ++i)
             for (int j = 0;  j < 4;  ++j)
                 rop.llvm_store_value (i==j ? src : zero, Result, 0, arrind, i*4+j);
-        ASSERT (! Result.has_derivs() && "matrices shouldn't have derivs");
+        rop.llvm_zero_derivs (Result);  // matrices don't have derivs currently
         return true;
     }
 
@@ -2541,9 +2551,11 @@ RuntimeOptimizer::llvm_assign_initial_value (const Symbol& sym)
 
     int arraylen = std::max (1, sym.typespec().arraylength());
 
-    if (sym.typespec().is_closure()) {
-        // Closures need to get their storage before anything can be
-        // assigned to them.
+    // Closures need to get their storage before anything can be
+    // assigned to them.  Unless they are params, in which case we took
+    // care of it in the group entry point.
+    if (sym.typespec().is_closure() &&
+        sym.symtype() != SymTypeParam && sym.symtype() != SymTypeOutputParam) {
         for (int a = 0; a < arraylen;  ++a) {
             llvm::Value *init_val = llvm_call_function ("osl_closure_allot",
                                                         sg_void_ptr());
@@ -2811,8 +2823,8 @@ LLVMGEN (llvm_gen_spline)
 // in *nformal_params the number of formal parameters (i.e. those prior
 // to the first optional argument).
 static int
-read_keyword_args (RuntimeOptimizer &rop, Opcode &op, ustring *labels,
-                   ustring &sidedness, int *nformal_params)
+read_keyword_args (RuntimeOptimizer &rop, Opcode &op, Symbol **labels,
+                   Symbol* &sidedness_value, int *nformal_params)
 {
     int nlabels = 0;
     int nargs = op.nargs();
@@ -2825,7 +2837,7 @@ read_keyword_args (RuntimeOptimizer &rop, Opcode &op, ustring *labels,
              Symbol &Val = *rop.opargsym (op, tok + 1);
              if (Val.typespec().is_string()) {
                  if (name == Strings::sidedness) {
-                     sidedness = *((ustring*) Val.data());
+                     sidedness_value = &Val;
                      tok++;
                  } else if (name == Strings::label) {
                      if (nlabels == ClosurePrimitive::MAXCUSTOM) {
@@ -2834,10 +2846,9 @@ read_keyword_args (RuntimeOptimizer &rop, Opcode &op, ustring *labels,
                                        op.sourceline());
                          return false;
                      } else {
-                         labels[nlabels] = *((ustring*) Val.data());
-                         nlabels++;
-                         tok++;
+                         labels[nlabels++] = &Val;
                      }
+                     tok++;
                  } else {
                      rop.shadingsys().error ("Unknown closure optional argument: \"%s\", <%s> (%s:%d)",
                                      name.c_str(),
@@ -2860,11 +2871,21 @@ read_keyword_args (RuntimeOptimizer &rop, Opcode &op, ustring *labels,
 
 
 static void
-gen_fill_closure_label (RuntimeOptimizer &rop, llvm::Value *mem_void_ptr, int offset, ustring label)
+gen_fill_closure_label (RuntimeOptimizer &rop, llvm::Value *mem_void_ptr,
+                        int offset, Symbol *label)
 {
     llvm::Value *dst_ptr = rop.llvm_offset_ptr (mem_void_ptr, offset,
                                                 rop.llvm_type_ustring_ptr());
-    rop.builder().CreateStore (rop.llvm_constant(label), dst_ptr);
+    llvm::Value *val;
+    if (label) {
+        if (label->is_constant())
+            val = rop.llvm_constant (* (ustring *)label->data());
+        else
+            val = rop.llvm_load_value (*label);
+    } else {
+        val = rop.llvm_constant (Labels::NONE);
+    }
+    rop.builder().CreateStore (val, dst_ptr);
 }
 
 
@@ -2882,10 +2903,12 @@ LLVMGEN (llvm_gen_closure)
 
     const ClosureRegistry::ClosureEntry * clentry = rop.shadingsys().find_closure(closure_name);
     ASSERT(clentry);
-    ustring sidedness = Strings::front;
-    ustring labels[ClosurePrimitive::MAXCUSTOM+1];
+
+    // Parse the optional arguments
+    Symbol *sidedness_value = NULL;
+    Symbol *labels[ClosurePrimitive::MAXCUSTOM+1];
     int nargs;   // number of formal arguments
-    int nlabels = read_keyword_args(rop, op, labels, sidedness, &nargs);
+    int nlabels = read_keyword_args (rop, op, labels, sidedness_value, &nargs);
 
     llvm::Value *render_ptr = rop.llvm_constant_ptr(rop.shadingsys().renderer(), rop.llvm_type_void_ptr());
     llvm::Value *cl_void_ptr = rop.llvm_load_value (Result);
@@ -2905,17 +2928,7 @@ LLVMGEN (llvm_gen_closure)
         llvm::Value *args[2] = {mem_void_ptr, size_int};
         rop.llvm_call_function ("osl_memzero", args, 2);
     }
-    ClosurePrimitive::Sidedness side = ClosurePrimitive::Front;
-    if (sidedness) {
-        if (sidedness == Strings::front)
-            side = ClosurePrimitive::Front;
-        else if (sidedness == Strings::back)
-            side = ClosurePrimitive::Back;
-        else if (sidedness == Strings::both)
-            side = ClosurePrimitive::Both;
-        else
-            side = ClosurePrimitive::None;
-    }
+
 
     // Here is where we fill the struct using the params
     for (int carg = 0; carg < (int)clentry->params.size(); ++carg)
@@ -2942,16 +2955,50 @@ LLVMGEN (llvm_gen_closure)
         }
     }
 
-    //llvm::outs() << "debug " << *args[2] << "\n";
-    if (clentry->sidedness_offset >= 0) {
-        llvm::Value *dst_ptr = rop.llvm_offset_ptr (mem_void_ptr, clentry->sidedness_offset, rop.llvm_type_int_ptr());
-        rop.builder().CreateStore (rop.llvm_constant(side), dst_ptr);
+    // Handle sidedness, if found
+    if (clentry->sidedness_offset < 0) {
+        // skip sidedness if the closure doesn't take it
+    } else if (sidedness_value && sidedness_value->typespec().is_string()) {
+        if (sidedness_value->is_constant()) {
+            // The sidedness string is constant -- decode it now
+            ustring sidedness = * (ustring *) sidedness_value->data();
+            ClosurePrimitive::Sidedness side = ClosurePrimitive::Front;
+            if (sidedness == Strings::front)
+                side = ClosurePrimitive::Front;
+            else if (sidedness == Strings::back)
+                side = ClosurePrimitive::Back;
+            else if (sidedness == Strings::both)
+                side = ClosurePrimitive::Both;
+            else
+                side = ClosurePrimitive::None;
+            llvm::Value *args[3];
+            args[0] = mem_void_ptr;
+            args[1] = rop.llvm_constant ((int)side);
+            args[2] = rop.llvm_constant ((int)clentry->sidedness_offset);
+            rop.llvm_call_function ("osl_set_closure_sidedness_enum", args, 3);
+        } else {
+            // Not a constant, make the decision in the shader
+            llvm::Value *args[3];
+            args[0] = mem_void_ptr;
+            args[1] = rop.llvm_load_value (*sidedness_value);
+            args[2] = rop.llvm_constant ((int)clentry->sidedness_offset);
+            rop.llvm_call_function ("osl_set_closure_sidedness_name", args, 3);
+        }
+    } else {
+        // Sidedness needed by closure, but user didn't specify -- use Front
+        // FIXME -- is this needed, or do the closures initialize themselves?
+        llvm::Value *args[3];
+        args[0] = mem_void_ptr;
+        args[1] = rop.llvm_constant ((int)ClosurePrimitive::Front);
+        args[2] = rop.llvm_constant ((int)clentry->sidedness_offset);
+        rop.llvm_call_function ("osl_set_closure_sidedness_enum", args, 3);
     }
+
     if (clentry->labels_offset >= 0) {
         int l;
         for (l = 0; l < nlabels && l < clentry->max_labels; ++l)
             gen_fill_closure_label(rop, mem_void_ptr, clentry->labels_offset + sizeof(ustring) * l, labels[l]);
-        gen_fill_closure_label(rop, mem_void_ptr, clentry->labels_offset + sizeof(ustring) * l, Labels::NONE);
+        gen_fill_closure_label(rop, mem_void_ptr, clentry->labels_offset + sizeof(ustring) * l, NULL);
     }
 
     if (clentry->setup)
@@ -3173,14 +3220,33 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
     // Set up a new IR builder
     delete m_builder;
     m_builder = new llvm::IRBuilder<> (entry_bb);
+    // llvm_gen_debug_printf ("enter layer");
 
-    // If this is the group entry point, clear all the "layer executed"
-    // bits.  If it's not the group entry (but rather is an upstream
-    // node), then set its bit!
     if (groupentry) {
+        // If this is the group entry point, clear all the "layer
+        // executed" bits.  If it's not the group entry (but rather is
+        // an upstream node), then set its bit!
         for (int i = 0;  i < group().nlayers();  ++i)
             builder().CreateStore (llvm_constant(0), layer_run_ptr(i));
+        // Group entries also need to allot space for ALL layers' params
+        // that are closures (to avoid weird order of layer eval problems).
+        for (int i = 0;  i < group().nlayers();  ++i) {
+            ShaderInstance *gi = group()[i];
+            BOOST_FOREACH (Symbol &sym, gi->symbols()) {
+                if (sym.typespec().is_closure() &&
+                    (sym.symtype() == SymTypeParam ||
+                     sym.symtype() == SymTypeOutputParam)) {
+                    int arraylen = std::max (1, sym.typespec().arraylength());
+                    for (int a = 0; a < arraylen;  ++a) {
+                        llvm::Value *val = llvm_call_function ("osl_closure_allot", sg_void_ptr());
+                        llvm::Value *arrind = sym.typespec().is_array() ? llvm_constant(a) : NULL;
+                        llvm_store_value (val, sym, 0, arrind, 0);
+                    }
+                }
+            }
+        }
     } else {
+        // Not the group entry -- just mark our layer as run
         builder().CreateStore (llvm_constant(1), layer_run_ptr(m_layer));
     }
 
@@ -3247,8 +3313,10 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
             }
         }
     }
+    // llvm_gen_debug_printf ("done copying connections");
 
     // All done
+    // llvm_gen_debug_printf ("exit layer");
     builder().CreateRetVoid();
 
 #ifdef DEBUG
@@ -3330,8 +3398,6 @@ RuntimeOptimizer::initialize_llvm_group ()
     std::vector<const llvm::Type*> matrixfields(1, float16);
     m_llvm_type_matrix = llvm::StructType::get(llvm_context(), matrixfields);
     m_llvm_type_matrix_ptr = llvm::PointerType::get (m_llvm_type_matrix, 0);
-
-    m_shadingsys.info ("Adding in extern functions");
 
     for (int i = 0;  llvm_helper_function_table[i];  i += 2) {
         const char *funcname = llvm_helper_function_table[i];
@@ -3419,6 +3485,27 @@ RuntimeOptimizer::llvm_setup_optimization_passes ()
     m_llvm_func_passes = new llvm::FunctionPassManager(llvm_module());
     llvm::FunctionPassManager &fpm (*m_llvm_func_passes);
     fpm.add (new llvm::TargetData(llvm_module()));
+
+    // Specify module-wide (interprocedural optimization) passes
+    //
+    m_llvm_passes = new llvm::PassManager;
+    llvm::PassManager &passes (*m_llvm_passes);
+
+#if 0
+    // N.B. See llvm's include/llvm/Support/StandardPasses.h to see what
+    // these do.
+    int optlevel = 3;
+    llvm::createStandardFunctionPasses (&fpm, optlevel /*opt level*/);
+    passes.add (llvm::createFunctionInliningPass(250));
+    llvm::Pass *inlining_pass = llvm::createFunctionInliningPass (250 /*threshold*/);
+    llvm::createStandardModulePasses (&passes, optlevel /*opt level*/,
+                                      false /* optimize size */,
+                                      true /* unit at a time */,
+                                      true /* unroll loops */,
+                                      true /* simplify lib calls */,
+                                      false /* have exceptions */,
+                                      inlining_pass);
+#else
     // Change memory references to registers
     fpm.add (llvm::createPromoteMemoryToRegisterPass());
     // Combine instructions where possible -- peephole opts & bit-twiddling
@@ -3438,13 +3525,11 @@ RuntimeOptimizer::llvm_setup_optimization_passes ()
     // Always add verifier?
     fpm.add (llvm::createVerifierPass());
 
-    // Specify module-wide (interprocedural optimization) passes
-    //
-    m_llvm_passes = new llvm::PassManager;
-    llvm::PassManager &passes (*m_llvm_passes);
     passes.add (new llvm::TargetData(llvm_module()));
     // Inline small functions
     passes.add (llvm::createFunctionInliningPass());
+#endif
+
     passes.add (llvm::createVerifierPass());
 }
 
@@ -3455,16 +3540,6 @@ RuntimeOptimizer::llvm_do_optimization (llvm::Function *func,
                                         bool interproc)
 {
     ASSERT (m_llvm_passes != NULL && m_llvm_func_passes != NULL);
-
-    if (! func) {
-        // If no particular function is specified, run function passes
-        // on all functions in the module (just recursively call this
-        // function).
-        for (llvm::Module::iterator i = llvm_module()->begin();
-                 i != llvm_module()->end(); ++i)
-            llvm_do_optimization (&(*i));
-        return;
-    }
 
     m_llvm_func_passes->doInitialization();
     m_llvm_func_passes->run (*func);
@@ -3477,10 +3552,12 @@ RuntimeOptimizer::llvm_do_optimization (llvm::Function *func,
         // Since the passes above inlined function calls, among other
         // things, we should rerun our whole optimization set on the master
         // function now.
+#if 1
         ASSERT (func);
         m_llvm_func_passes->doInitialization ();
         m_llvm_func_passes->run (*func);
         m_llvm_func_passes->doFinalization ();
+#endif
     }
 }
 

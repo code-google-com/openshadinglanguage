@@ -179,6 +179,15 @@ osl_warning (void *sg_, const char* format_str, ...)
 }
 
 
+extern "C" void
+osl_assert_nonnull (void *x, const char *msg)
+{
+    if (!x && msg)
+        printf ("found null %s\n", msg);
+    ASSERT (x && "should be non-null");
+}
+
+
 
 #define MAKE_UNARY_PERCOMPONENT_OP(name,floatfunc,dualfunc)         \
 extern "C" float                                                    \
@@ -743,7 +752,9 @@ osl_closure_allot (void *sg_)
 {
     SingleShaderGlobal *sg = (SingleShaderGlobal *)sg_;
     ShadingContext *ctx = (ShadingContext *)sg->context;
-    return ctx->closure_ptr_allot ();
+    void *r = ctx->closure_ptr_allot ();
+    ASSERT (r && "bad closure allot");
+    return r;
 }
 
 extern "C" void
@@ -763,6 +774,7 @@ osl_closure_clear_indexed (void **_r, int i)
 extern "C" void
 osl_closure_assign (void *_r, void *_x)
 {
+    DASSERT (_r);  DASSERT (_x);
     ClosureColor *r = (ClosureColor *)_r;
     ClosureColor *x = (ClosureColor *)_x;
     *r = *x;
@@ -808,6 +820,28 @@ extern "C" void *
 osl_allocate_closure_component (void *r, int id, int size)
 {
     return CLOSURE(r)->allocate_component (id, size);
+}
+
+extern "C" void
+osl_set_closure_sidedness_enum (void *mem, int side, int offset)
+{
+    *(int *)((char *)mem + offset) = side;
+}
+
+extern "C" void
+osl_set_closure_sidedness_name (void *mem, const char *sidedness_, int offset)
+{
+    ustring sidedness (USTR(sidedness_));
+    ClosurePrimitive::Sidedness side = ClosurePrimitive::Front;
+    if (sidedness == Strings::front)
+        side = ClosurePrimitive::Front;
+    else if (sidedness == Strings::back)
+        side = ClosurePrimitive::Back;
+    else if (sidedness == Strings::both)
+        side = ClosurePrimitive::Both;
+    else
+        side = ClosurePrimitive::None;
+    *(int *)((char *)mem + offset) = side;
 }
 
 

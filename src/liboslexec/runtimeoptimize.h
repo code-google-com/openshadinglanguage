@@ -449,6 +449,8 @@ public:
         return llvm_call_function (name, args, 2);
     }
 
+    void llvm_gen_debug_printf (const std::string &message);
+
     /// Generate code for a call to the named function with the given
     /// arg list as symbols -- float & ints will be passed by value,
     /// triples and matrices will be passed by address.  If deriv_ptrs
@@ -500,11 +502,9 @@ public:
 
     void llvm_setup_optimization_passes ();
 
-    /// Do LLVM optimization, either on the partcular function func, if
-    /// specified, or on all the functions in the module (if func==NULL).
-    /// If interproc is true, also do full interprocedural optimization.
-    void llvm_do_optimization (llvm::Function *func=NULL,
-                               bool interproc=false);
+    /// Do LLVM optimization on the partcular function func.  If
+    /// interproc is true, also do full interprocedural optimization.
+    void llvm_do_optimization (llvm::Function *func, bool interproc=false);
 #endif
 
 private:
